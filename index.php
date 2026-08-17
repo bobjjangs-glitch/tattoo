@@ -1,4 +1,8 @@
 <?php
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
+ini_set('log_errors', '1');
+
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
 
@@ -26,7 +30,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $pdo->prepare('UPDATE ss_users SET last_login_at = NOW() WHERE id = ?')->execute([$user['id']]);
 
-                // 세션 고정(fixation) 공격 방지를 위해 로그인 성공 시 세션ID를 재발급한다.
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['user_email'] = $user['email'];
@@ -37,36 +40,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } catch (Throwable $e) {
             error_log('[login] ' . $e->getMessage());
-            $errorMsg = '서버 오류로 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.';
+            $errorMsg = 'DB 오류: ' . $e->getMessage();
         }
     }
 }
 
-$pageTitle = '로그인 | SalonForm';
-require_once __DIR__ . '/includes/layout_head.php';
+$pageTitle = '로그인';
+include __DIR__ . '/includes/layout_head.php';
 ?>
-<div class="login-page">
-  <div class="login-box">
-    <h1 class="logo-text">SalonForm</h1>
-    <p class="login-desc">뷰티 매장 전자동의서 관리</p>
-    <form method="post" class="login-form">
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">SalonForm</div>
+    <p class="auth-subtitle">이메일로 로그인하세요</p>
+
+    <?php if (!empty($error)): ?>
+      <div class="alert-error"><?php echo htmlspecialchars($error); ?></div>
+    <?php endif; ?>
+
+    <form method="POST" action="index.php">
       <div class="form-group">
         <label>이메일</label>
-        <input type="email" name="email" placeholder="you@example.com"
-               value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required>
+        <input type="email" name="email" required autocomplete="email">
       </div>
       <div class="form-group">
         <label>비밀번호</label>
-        <input type="password" name="password" placeholder="비밀번호" required>
+        <input type="password" name="password" required autocomplete="current-password">
       </div>
-      <?php if ($errorMsg): ?>
-        <p class="error-text"><?= htmlspecialchars($errorMsg) ?></p>
-      <?php endif; ?>
-      <button type="submit" class="btn-primary btn-full">로그인</button>
+      <button type="submit" class="btn-primary">로그인</button>
     </form>
-    <p class="login-desc" style="margin-top:16px;">
-      계정이 없으신가요? <a href="signup.php">회원가입</a>
-    </p>
+
+    <div class="auth-links">
+      아직 계정이 없으신가요? <a href="signup.php">회원가입</a>
+    </div>
   </div>
 </div>
-<?php require_once __DIR__ . '/includes/layout_foot.php'; ?>
+<?php include __DIR__ . '/includes/layout_foot.php'; ?>

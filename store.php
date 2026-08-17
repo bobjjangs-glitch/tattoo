@@ -70,68 +70,96 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $customers = $stmt->fetchAll();
 
-$pageTitle = htmlspecialchars($store['name']) . ' | SalonForm';
+$activePage = 'customers';
+$pageTitle = htmlspecialchars($store['name']) . ' 고객 관리';
 require_once __DIR__ . '/includes/layout_head.php';
 ?>
-<div class="dashboard-page">
-  <header class="dashboard-header">
-    <h1><?= htmlspecialchars($store['name']) ?> (<?= htmlspecialchars($store['industry']) ?>)</h1>
-    <a href="dashboard.php" class="btn-secondary">← 대시보드</a>
-  </header>
+<div class="dashboard-layout">
+  <?php require __DIR__ . '/includes/store_sidebar.php'; ?>
 
-  <section class="customer-search">
-    <form method="get">
-      <input type="hidden" name="id" value="<?= htmlspecialchars($storeId) ?>">
-      <input type="text" name="keyword" placeholder="고객 이름 검색" value="<?= htmlspecialchars($keyword) ?>">
-      <button type="submit" class="btn-secondary">검색</button>
-    </form>
-  </section>
+  <main class="main-content">
+    <header class="dashboard-header">
+      <span><?php echo htmlspecialchars($user['name'] ?? ''); ?>님</span>
+    </header>
 
-  <section class="customer-list">
-    <h2>고객 목록 (<?= count($customers) ?>명)</h2>
-    <?php if (!$customers): ?>
-      <p>등록된 고객이 없습니다.</p>
-    <?php else: ?>
-      <table class="data-table">
-        <thead><tr><th>이름</th><th>전화번호</th><th>성별</th><th>등록일</th></tr></thead>
-        <tbody>
-          <?php foreach ($customers as $c): ?>
+    <div class="page-content">
+      <div class="page-header">
+        <h1 class="page-title"><?php echo htmlspecialchars($store['name']); ?> 고객 관리</h1>
+      </div>
+
+      <section class="customer-search" style="margin-bottom:16px;">
+        <form method="get">
+          <input type="hidden" name="id" value="<?php echo htmlspecialchars($storeId); ?>">
+          <input type="text" name="keyword" placeholder="고객 이름 검색" value="<?php echo htmlspecialchars($keyword); ?>">
+          <button type="submit" class="btn-secondary">검색</button>
+        </form>
+      </section>
+
+      <?php if (isset($_GET['created'])): ?>
+        <div class="alert-success">고객이 등록되었습니다.</div>
+      <?php endif; ?>
+
+      <?php if (!$customers): ?>
+        <div class="empty-state">
+          <p class="empty-text">등록된 고객이 없습니다</p>
+          <p class="empty-desc">첫 고객을 등록해보세요</p>
+        </div>
+      <?php else: ?>
+        <table class="data-table">
+          <thead>
             <tr>
-              <td><?= htmlspecialchars($c['name']) ?></td>
-              <td><?= htmlspecialchars($c['phone_masked']) ?></td>
-              <td><?= htmlspecialchars($c['gender']) ?></td>
-              <td><?= htmlspecialchars($c['created_at']) ?></td>
+              <th>이름</th>
+              <th>전화번호</th>
+              <th>성별</th>
+              <th>등록일</th>
             </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    <?php endif; ?>
-  </section>
+          </thead>
+          <tbody>
+            <?php foreach ($customers as $c): ?>
+              <tr>
+                <td><?php echo htmlspecialchars($c['name']); ?></td>
+                <td><?php echo htmlspecialchars($c['phone_masked']); ?></td>
+                <td><?php echo htmlspecialchars($c['gender']); ?></td>
+                <td><?php echo htmlspecialchars($c['created_at']); ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
 
-  <section class="customer-register">
-    <h2>고객 등록</h2>
-    <form method="post">
-      <div class="form-group">
-        <label>이름</label>
-        <input type="text" name="name" required>
-        <?php if (!empty($fieldErrors['name'])): ?><p class="error-text"><?= htmlspecialchars($fieldErrors['name']) ?></p><?php endif; ?>
+     <div class="page-header">
+  <h1 class="page-title"><?php echo htmlspecialchars($store['name']); ?> 고객 관리</h1>
+  <button class="btn-add" onclick="location.href='customer-register.php?id=<?php echo urlencode($storeId); ?>'">+ 고객 등록</button>
+</div>
+
+        <?php endif; ?>
+        <form method="post">
+          <div class="form-group">
+            <label>이름</label>
+            <input type="text" name="name" required>
+            <?php if (!empty($fieldErrors['name'])): ?>
+              <p style="color:var(--danger);font-size:12px;margin-top:4px;"><?php echo htmlspecialchars($fieldErrors['name']); ?></p>
+            <?php endif; ?>
+          </div>
+          <div class="form-group">
+            <label>전화번호</label>
+            <input type="text" name="phone" placeholder="010-0000-0000" required>
+            <?php if (!empty($fieldErrors['phone'])): ?>
+              <p style="color:var(--danger);font-size:12px;margin-top:4px;"><?php echo htmlspecialchars($fieldErrors['phone']); ?></p>
+            <?php endif; ?>
+          </div>
+          <div class="form-group">
+            <label>성별</label>
+            <select name="gender">
+              <option value="unknown">선택안함</option>
+              <option value="female">여성</option>
+              <option value="male">남성</option>
+            </select>
+          </div>
+          <button type="submit" class="btn-primary" style="width:auto;padding:12px 28px;">고객 등록</button>
+        </form>
       </div>
-      <div class="form-group">
-        <label>전화번호</label>
-        <input type="text" name="phone" placeholder="010-0000-0000" required>
-        <?php if (!empty($fieldErrors['phone'])): ?><p class="error-text"><?= htmlspecialchars($fieldErrors['phone']) ?></p><?php endif; ?>
-      </div>
-      <div class="form-group">
-        <label>성별</label>
-        <select name="gender">
-          <option value="unknown">선택안함</option>
-          <option value="female">여성</option>
-          <option value="male">남성</option>
-        </select>
-      </div>
-      <?php if ($errorMsg): ?><p class="error-text"><?= htmlspecialchars($errorMsg) ?></p><?php endif; ?>
-      <button type="submit" class="btn-primary">고객 등록</button>
-    </form>
-  </section>
+    </div>
+  </main>
 </div>
 <?php require_once __DIR__ . '/includes/layout_foot.php'; ?>

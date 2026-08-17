@@ -1,4 +1,8 @@
 <?php
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
+ini_set('log_errors', '1');
+
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
 require_once __DIR__ . '/api/utils/Validator.php';
@@ -49,49 +53,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } catch (Throwable $e) {
             error_log('[signup] ' . $e->getMessage());
-            $errorMsg = '서버 오류로 회원가입에 실패했습니다. 잠시 후 다시 시도해주세요.';
+            $errorMsg = 'DB 오류: ' . $e->getMessage();
         }
     }
 }
 
-$pageTitle = '회원가입 | SalonForm';
-require_once __DIR__ . '/includes/layout_head.php';
+$pageTitle = '회원가입';
+include __DIR__ . '/includes/layout_head.php';
 ?>
-<div class="login-page">
-  <div class="login-box">
-    <h1 class="logo-text">SalonForm</h1>
-    <p class="login-desc">회원가입</p>
-    <form method="post" class="login-form">
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">SalonForm</div>
+    <p class="auth-subtitle">10초 만에 시작하세요</p>
+
+    <?php if (!empty($error)): ?>
+      <div class="alert-error"><?php echo htmlspecialchars($error); ?></div>
+    <?php endif; ?>
+
+    <form method="POST" action="signup.php">
       <div class="form-group">
         <label>이름</label>
-        <input type="text" name="name" value="<?= htmlspecialchars($_POST['name'] ?? '') ?>" required>
-        <?php if (!empty($fieldErrors['name'])): ?><p class="error-text"><?= htmlspecialchars($fieldErrors['name']) ?></p><?php endif; ?>
+        <input type="text" name="name" required>
       </div>
       <div class="form-group">
         <label>이메일</label>
-        <input type="email" name="email" value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required>
-        <?php if (!empty($fieldErrors['email'])): ?><p class="error-text"><?= htmlspecialchars($fieldErrors['email']) ?></p><?php endif; ?>
+        <input type="email" name="email" required autocomplete="email">
       </div>
       <div class="form-group">
-        <label>전화번호 (선택)</label>
-        <input type="text" name="phone" value="<?= htmlspecialchars($_POST['phone'] ?? '') ?>">
+        <label>비밀번호 (8자 이상)</label>
+        <input type="password" name="password" required minlength="8" autocomplete="new-password">
       </div>
       <div class="form-group">
-        <label>비밀번호 (8자리 이상)</label>
-        <input type="password" name="password" required>
-        <?php if (!empty($fieldErrors['password'])): ?><p class="error-text"><?= htmlspecialchars($fieldErrors['password']) ?></p><?php endif; ?>
+        <label>전화번호</label>
+        <input type="tel" name="phone" placeholder="선택 입력">
       </div>
-      <div class="form-group">
-        <label>비밀번호 확인</label>
-        <input type="password" name="password_confirm" required>
-        <?php if (!empty($fieldErrors['password_confirm'])): ?><p class="error-text"><?= htmlspecialchars($fieldErrors['password_confirm']) ?></p><?php endif; ?>
-      </div>
-      <?php if ($errorMsg): ?><p class="error-text"><?= htmlspecialchars($errorMsg) ?></p><?php endif; ?>
-      <button type="submit" class="btn-primary btn-full">가입하기</button>
+      <button type="submit" class="btn-primary">회원가입</button>
     </form>
-    <p class="login-desc" style="margin-top:16px;">
+
+    <div class="auth-links">
       이미 계정이 있으신가요? <a href="index.php">로그인</a>
-    </p>
+    </div>
   </div>
 </div>
-<?php require_once __DIR__ . '/includes/layout_foot.php'; ?>
+<?php include __DIR__ . '/includes/layout_foot.php'; ?>
