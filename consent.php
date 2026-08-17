@@ -3,6 +3,9 @@ $activePage = 'consent';
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
 
+$user = requireLogin();
+$pdo = getDbConnection();
+
 $storeId = $_GET['id'] ?? '';
 if ($storeId === '') {
     header('Location: dashboard.php');
@@ -11,7 +14,7 @@ if ($storeId === '') {
 
 try {
     $stmt = $pdo->prepare('SELECT id, name, industry FROM ss_stores WHERE id = ? AND owner_id = ?');
-    $stmt->execute([$storeId, $_SESSION['user_id']]);
+    $stmt->execute([$storeId, $user['id']]);
     $store = $stmt->fetch();
 
     if (!$store) {
