@@ -1,245 +1,250 @@
 <?php
-$activePage = 'consent';
+// consent-edit.php
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
-require_once __DIR__ . '/api/utils/Uuid.php';
+require_once __DIR__ . '/includes/diagram_helper.php';
 
-$user = requireLogin();
-$pdo = getDbConnection();
+if (file_exists(__DIR__ . '/api/utils/Uuid.php')) {
+    require_once __DIR__ . '/api/utils/Uuid.php';
+} else {
+    function generateUuidV4() {
+        $data = random_bytes(16);
+        $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
+        $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+    }
+}
 
-$storeId = $_GET['id'] ?? '';
-$templateId = $_GET['template_id'] ?? ($_POST['template_id'] ?? '');
-$errors = [];
-$existing = null;
+$diagramConfig = include __DIR__ . '/includes/diagram_config.php';
+if (!is_array($diagramConfig) || empty($diagramConfig)) {
+    // diagram_config.php 파일 자체가 없거나 문법 오류로 빈 배열/false를 반환한 경우
+    // → 여기서 die로 명확히 알려야 조용히 사라지는 사고를 막을 수 있음
+    http_response_code(500);
+    die('시술 부위 도해 설정 파일(includes/diagram_config.php)을 불러오지 못했습니다. 파일 존재 여부와 문법을 확인해주세요.');
+}
 
-if ($storeId === '') {
-    header('Location: dashboard.php');
+$db = getDbConnection();
+
+$templateId = $_GET['id'] ?? ($_POST['id'] ?? null);
+$storeId    = $_GET['store_id'] ?? ($_POST['store_id'] ?? null);
+
+if (!$storeId) {
+    http_response_code(400);
+    die('store_id가 필요합니다.');
+}
+
+// ── 저장 처리 (POST) ──────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $title         = trim($_POST['title'] ?? '');
+    $industry      = trim($_POST['industry'] ?? '');
+    $content       = $_POST['content'] ?? '';
+    $refundPolicy  = trim($_POST['refund_policy'] ?? '');
+    $diagramTypeRaw = $_POST['diagram_type'] ?? 'none';
+
+    // 정규화 후 화이트리스트 검증 — 라디오 버튼 외부에서 임의 값이 들어와도 안전하게 처리
+    $diagramType = normalizeDiagramTypeKey($diagramTypeRaw, $diagramConfig);
+
+    if ($title === '' || $industry === '') {
+        http_response_code(422);
+        die('제목과 업종은 필수 입력 항목입니다.');
+    }
+
+    $checklistItemsJson   = $_POST['checklist_items_json']   ?? '{"groups":[]}';
+    $agreementClausesJson = $_POST['agreement_clauses_json'] ?? '{"final_text":""}';
+
+    if ($templateId) {
+        $stmt = $db->prepare(
+            "UPDATE ss_consent_templates
+             SET title = :title, industry = :industry, content = :content,
+                 checklist_items = :checklist_items, agreement_clauses = :agreement_clauses,
+                 refund_policy = :refund_policy, diagram_type = :diagram_type,
+                 version = version + 1
+             WHERE id = :id AND store_id = :store_id"
+        );
+        $stmt->execute([
+            ':title'             => $title,
+            ':industry'          => $industry,
+            ':content'           => $content,
+            ':checklist_items'   => $checklistItemsJson,
+            ':agreement_clauses' => $agreementClausesJson,
+            ':refund_policy'     => $refundPolicy ?: null,
+            ':diagram_type'      => $diagramType, // 정규화된 값만 저장 — 앞으로 DB에는 공백/오타가 절대 들어가지 않음
+            ':id'                => $templateId,
+            ':store_id'          => $storeId,
+        ]);
+    } else {
+        $newId = generateUuidV4();
+        $stmt = $db->prepare(
+            "INSERT INTO ss_consent_templates
+             (id, store_id, industry, title, content, checklist_items, agreement_clauses,
+              refund_policy, diagram_type, version, is_active, created_at)
+             VALUES (:id, :store_id, :industry, :title, :content, :checklist_items, :agreement_clauses,
+                     :refund_policy, :diagram_type, 1, 1, NOW())"
+        );
+        $stmt->execute([
+            ':id'                => $newId,
+            ':store_id'          => $storeId,
+            ':industry'          => $industry,
+            ':title'             => $title,
+            ':content'           => $content,
+            ':checklist_items'   => $checklistItemsJson,
+            ':agreement_clauses' => $agreementClausesJson,
+            ':refund_policy'     => $refundPolicy ?: null,
+            ':diagram_type'      => $diagramType,
+        ]);
+        $templateId = $newId;
+    }
+
+    header('Location: consent-manage.php?store_id=' . urlencode($storeId) . '&saved=1');
     exit;
 }
 
-try {
-    $stmt = $pdo->prepare('SELECT id, name, industry FROM ss_stores WHERE id = ? AND owner_id = ?');
-    $stmt->execute([$storeId, $user['id']]);
-    $store = $stmt->fetch();
+// ── 기존 데이터 로드 (수정 모드) ───────────────────────────────
+$template = [
+    'id' => '', 'title' => '', 'industry' => '', 'content' => '',
+    'checklist_items' => '{"groups":[]}', 'agreement_clauses' => '{"final_text":""}',
+    'refund_policy' => '', 'diagram_type' => 'none',
+];
 
-    if (!$store) {
-        header('Location: dashboard.php');
-        exit;
+if ($templateId) {
+    $stmt = $db->prepare("SELECT * FROM ss_consent_templates WHERE id = :id AND store_id = :store_id LIMIT 1");
+    $stmt->execute([':id' => $templateId, ':store_id' => $storeId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($row) {
+        $template = $row;
     }
-
-    if ($templateId !== '') {
-        $existStmt = $pdo->prepare('SELECT * FROM ss_consent_templates WHERE id = ? AND store_id = ?');
-        $existStmt->execute([$templateId, $storeId]);
-        $existing = $existStmt->fetch();
-        if (!$existing) {
-            header('Location: consent.php?id=' . urlencode($storeId));
-            exit;
-        }
-    }
-
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $title = trim($_POST['title'] ?? '');
-        $industry = trim($_POST['industry'] ?? $store['industry']);
-        $checklistItemsRaw = $_POST['checklist_items'] ?? [];
-        $agreementClausesRaw = $_POST['agreement_clauses'] ?? [];
-        $refundPolicyRaw = $_POST['refund_policy'] ?? '';
-
-        // 유효성 검사
-        if ($title === '' || mb_strlen($title) > 255) {
-            $errors[] = '제목을 1~255자 이내로 입력해주세요.';
-        }
-        $checklistItems = array_values(array_filter(array_map('trim', $checklistItemsRaw), fn($v) => $v !== ''));
-        if (empty($checklistItems)) {
-            $errors[] = '체크리스트 항목을 1개 이상 입력해주세요.';
-        }
-        $agreementClauses = array_values(array_filter(array_map('trim', $agreementClausesRaw), fn($v) => $v !== ''));
-        if (empty($agreementClauses)) {
-            $errors[] = '동의 조항을 1개 이상 입력해주세요.';
-        }
-
-        // 리치 텍스트 XSS 방지 - 허용 태그만 남김
-        $allowedTags = '<b><i><u><strong><em><ul><ol><li><br><p>';
-        $refundPolicy = strip_tags($refundPolicyRaw, $allowedTags);
-
-        // 파일 업로드 처리 (선택)
-        $templateFileUrl = $existing['template_file_url'] ?? null;
-        if (!empty($_FILES['template_file']['name'])) {
-            $file = $_FILES['template_file'];
-            $allowedExt = ['pdf', 'jpg', 'jpeg', 'png'];
-            $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            $maxSize = 10 * 1024 * 1024;
-
-            if ($file['error'] !== UPLOAD_ERR_OK) {
-                $errors[] = '파일 업로드 중 오류가 발생했습니다.';
-            } elseif (!in_array($ext, $allowedExt, true)) {
-                $errors[] = 'PDF, JPG, PNG 파일만 업로드할 수 있습니다.';
-            } elseif ($file['size'] > $maxSize) {
-                $errors[] = '파일 크기는 10MB를 초과할 수 없습니다.';
-            } else {
-                $uploadDir = $_SERVER['DOCUMENT_ROOT'] . '/tattoo/uploads/consent-templates/';
-                $newFileName = Uuid::v4() . '.' . $ext;
-                if (move_uploaded_file($file['tmp_name'], $uploadDir . $newFileName)) {
-                    // 기존 파일 있으면 삭제
-                    if (!empty($templateFileUrl)) {
-                        $oldPath = $_SERVER['DOCUMENT_ROOT'] . $templateFileUrl;
-                        if (file_exists($oldPath)) {
-                            unlink($oldPath);
-                        }
-                    }
-                    $templateFileUrl = '/tattoo/uploads/consent-templates/' . $newFileName;
-                } else {
-                    $errors[] = '파일 저장에 실패했습니다.';
-                }
-            }
-        }
-
-        if (empty($errors)) {
-            $checklistJson = json_encode($checklistItems, JSON_UNESCAPED_UNICODE);
-            $clausesJson = json_encode($agreementClauses, JSON_UNESCAPED_UNICODE);
-
-            if ($existing) {
-                $upd = $pdo->prepare('UPDATE ss_consent_templates
-                    SET title = ?, industry = ?, checklist_items = ?, agreement_clauses = ?,
-                        refund_policy = ?, template_file_url = ?, version = version + 1
-                    WHERE id = ?');
-                $upd->execute([$title, $industry, $checklistJson, $clausesJson, $refundPolicy, $templateFileUrl, $existing['id']]);
-                $templateId = $existing['id'];
-            } else {
-                $newId = Uuid::v4();
-                $ins = $pdo->prepare('INSERT INTO ss_consent_templates
-                    (id, store_id, industry, title, checklist_items, agreement_clauses, refund_policy, template_file_url, version, is_active)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)');
-                $ins->execute([$newId, $storeId, $industry, $title, $checklistJson, $clausesJson, $refundPolicy, $templateFileUrl]);
-                $templateId = $newId;
-            }
-
-            header('Location: consent-view.php?id=' . urlencode($storeId) . '&template_id=' . urlencode($templateId) . '&saved=1');
-            exit;
-        }
-    }
-
-    // 폼 초기값
-    $formTitle = $_POST['title'] ?? ($existing['title'] ?? '');
-    $formIndustry = $_POST['industry'] ?? ($existing['industry'] ?? $store['industry']);
-    $formChecklist = $_POST['checklist_items'] ?? ($existing ? json_decode($existing['checklist_items'], true) : ['']);
-    $formClauses = $_POST['agreement_clauses'] ?? ($existing ? json_decode($existing['agreement_clauses'], true) : ['']);
-    $formRefund = $_POST['refund_policy'] ?? ($existing['refund_policy'] ?? '');
-    $formFileUrl = $existing['template_file_url'] ?? null;
-
-    $pageTitle = $store['name'] . ' - ' . ($existing ? '동의서 수정' : '새 동의서 만들기');
-} catch (Throwable $e) {
-    error_log('[consent-edit.php] ' . $e->getMessage());
-    http_response_code(500);
-    $isError = true;
 }
 
-require_once __DIR__ . '/includes/layout_head.php';
+$diagramTypeRawFromDb = $template['diagram_type'] ?? 'none';
+$currentDiagramType    = normalizeDiagramTypeKey($diagramTypeRawFromDb, $diagramConfig);
+$diagramMismatch       = diagramTypeMismatchDetected($diagramTypeRawFromDb, $currentDiagramType);
+
+require_once __DIR__ . '/includes/flow_head.php';
 ?>
 
-<div class="dashboard-layout">
-    <?php require __DIR__ . '/includes/store_sidebar.php'; ?>
+<div class="consent-modal-page">
+  <div class="consent-modal-topbar">
+    <div class="consent-modal-title">동의서 수정</div>
+  </div>
 
-    <main class="main-content">
-        <div class="page-header">
-            <h1><?= $existing ? '동의서 수정' : '새 동의서 만들기' ?></h1>
-            <a href="consent.php?id=<?= htmlspecialchars($storeId) ?>" class="btn btn-secondary">목록으로</a>
-        </div>
+  <?php if ($diagramMismatch): ?>
+    <div class="alert alert-warning">
+      ⚠ DB에 저장된 diagram_type 값(<code><?= htmlspecialchars($diagramTypeRawFromDb) ?></code>)이
+      설정 목록과 정확히 일치하지 않아 자동으로 "<?= htmlspecialchars($diagramConfig[$currentDiagramType]['label']) ?>"로 보정했습니다.
+      저장을 다시 눌러 값을 정리해주세요.
+    </div>
+  <?php endif; ?>
 
-        <?php if (!empty($isError)): ?>
-            <div class="alert alert-error">페이지를 불러오는 중 오류가 발생했습니다.</div>
-        <?php else: ?>
-            <?php if (!empty($errors)): ?>
-                <div class="alert alert-error">
-                    <ul><?php foreach ($errors as $err): ?><li><?= htmlspecialchars($err) ?></li><?php endforeach; ?></ul>
-                </div>
-            <?php endif; ?>
+  <form method="post" action="consent-edit.php" id="consentEditForm">
+    <input type="hidden" name="id" value="<?= htmlspecialchars($template['id']) ?>">
+    <input type="hidden" name="store_id" value="<?= htmlspecialchars($storeId) ?>">
+    <input type="hidden" name="checklist_items_json" id="checklist_items_json" value="<?= htmlspecialchars($template['checklist_items']) ?>">
+    <input type="hidden" name="agreement_clauses_json" id="agreement_clauses_json" value="<?= htmlspecialchars($template['agreement_clauses']) ?>">
 
-            <form method="post" enctype="multipart/form-data" class="consent-form">
-                <input type="hidden" name="template_id" value="<?= htmlspecialchars($templateId) ?>">
+    <label class="field-label">제목 *</label>
+    <input type="text" name="title" value="<?= htmlspecialchars($template['title']) ?>" required class="field-input">
 
-                <div class="form-group">
-                    <label>제목</label>
-                    <input type="text" name="title" value="<?= htmlspecialchars($formTitle) ?>" maxlength="255" required>
-                </div>
+    <label class="field-label">카테고리 *</label>
+    <input type="text" name="industry" value="<?= htmlspecialchars($template['industry']) ?>" required class="field-input">
 
-                <div class="form-group">
-                    <label>업종</label>
-                    <input type="text" name="industry" value="<?= htmlspecialchars($formIndustry) ?>" maxlength="20" required>
-                </div>
+    <label class="field-label">내용</label>
+    <textarea name="content" id="richContent" class="rich-editor-textarea"><?= htmlspecialchars($template['content']) ?></textarea>
 
-                <div class="form-group">
-                    <label>체크리스트 항목</label>
-                    <div id="checklist-wrap">
-                        <?php foreach ($formChecklist as $item): ?>
-                        <div class="dynamic-row">
-                            <input type="text" name="checklist_items[]" value="<?= htmlspecialchars($item) ?>" placeholder="예: 시술 전 음주 여부 확인">
-                            <button type="button" class="btn-remove-row" onclick="this.parentElement.remove()">삭제</button>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <button type="button" class="btn btn-outline" onclick="addRow('checklist-wrap','checklist_items[]','예: 항목을 입력하세요')">+ 항목 추가</button>
-                </div>
+    <div id="checklistGroupEditor" class="checklist-group-editor">
+      <!-- 기존 편집기 JS가 이 영역에 그룹/항목 입력 UI를 렌더링 -->
+    </div>
 
-                <div class="form-group">
-                    <label>동의 조항</label>
-                    <div id="clauses-wrap">
-                        <?php foreach ($formClauses as $clause): ?>
-                        <div class="dynamic-row">
-                            <textarea name="agreement_clauses[]" rows="2" placeholder="동의 조항 내용을 입력하세요"><?= htmlspecialchars($clause) ?></textarea>
-                            <button type="button" class="btn-remove-row" onclick="this.parentElement.remove()">삭제</button>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                    <button type="button" class="btn btn-outline" onclick="addTextareaRow('clauses-wrap','agreement_clauses[]','동의 조항 내용을 입력하세요')">+ 조항 추가</button>
-                </div>
+    <label class="field-label">환불 정책</label>
+    <textarea name="refund_policy" class="field-textarea"><?= htmlspecialchars($template['refund_policy']) ?></textarea>
 
-                <div class="form-group">
-                    <label>환불 정책 (서식 있음)</label>
-                    <div class="rich-toolbar">
-                        <button type="button" onclick="document.execCommand('bold')"><b>B</b></button>
-                        <button type="button" onclick="document.execCommand('italic')"><i>I</i></button>
-                        <button type="button" onclick="document.execCommand('insertUnorderedList')">목록</button>
-                    </div>
-                    <div id="refund-editor" class="rich-editor" contenteditable="true"><?= $formRefund ?></div>
-                    <input type="hidden" name="refund_policy" id="refund-hidden">
-                </div>
+    <!-- ── 도해 선택 영역 (5종 + 없음) ── -->
+    <div class="diagram-type-label">시술 부위 도해 선택</div>
+    <div class="diagram-type-selector">
+      <?php foreach ($diagramConfig as $key => $type):
+            if ($key === 'none') continue;
+            $isSelected = ($currentDiagramType === $key);
+      ?>
+        <label class="diagram-type-card<?= $isSelected ? ' is-selected' : '' ?>">
+          <input type="radio" name="diagram_type" value="<?= htmlspecialchars($key) ?>"
+                 <?= $isSelected ? 'checked' : '' ?>
+                 onchange="onDiagramTypeChange(this.value)">
+          <div class="diagram-type-thumb-wrap">
+            <img src="<?= htmlspecialchars($type['thumb']) ?>"
+                 alt="<?= htmlspecialchars($type['label']) ?>"
+                 onerror="this.closest('.diagram-type-thumb-wrap').classList.add('thumb-broken')">
+          </div>
+          <span class="diagram-type-name"><?= htmlspecialchars($type['label']) ?></span>
+        </label>
+      <?php endforeach; ?>
 
-                <div class="form-group">
-                    <label>동의서 원본 파일 첨부 (PDF/JPG/PNG, 최대 10MB)</label>
-                    <div class="upload-box">
-                        <input type="file" name="template_file" accept=".pdf,.jpg,.jpeg,.png">
-                        <?php if (!empty($formFileUrl)): ?>
-                            <p class="muted">현재 첨부파일: <a href="<?= htmlspecialchars($formFileUrl) ?>" target="_blank">다운로드</a></p>
-                        <?php endif; ?>
-                    </div>
-                </div>
+      <label class="diagram-type-card<?= ($currentDiagramType === 'none') ? ' is-selected' : '' ?>">
+        <input type="radio" name="diagram_type" value="none"
+               <?= ($currentDiagramType === 'none') ? 'checked' : '' ?>
+               onchange="onDiagramTypeChange(this.value)">
+        <div class="diagram-type-thumb-wrap diagram-type-thumb-empty">없음</div>
+        <span class="diagram-type-name">도해 없음</span>
+      </label>
+    </div>
 
-                <button type="submit" class="btn btn-primary" onclick="syncRefundEditor()">저장</button>
-            </form>
-        <?php endif; ?>
-    </main>
+    <!-- 도해 미리보기 (선택한 타입에 맞춰 즉시 갱신, 읽기 전용) -->
+    <div class="diagram-preview-box">
+      <div class="diagram-preview-label">선택한 도해 미리보기</div>
+      <div id="diagramPreviewArea">
+        <?php
+          $diagramType = $currentDiagramType;
+          include __DIR__ . '/includes/diagram_render.php';
+        ?>
+      </div>
+    </div>
+
+    <div class="modal-footer-actions">
+      <button type="button" class="btn-cancel" onclick="history.back()">취소</button>
+      <button type="submit" class="btn-primary">저장</button>
+    </div>
+  </form>
 </div>
 
 <script>
-function addRow(wrapId, name, placeholder) {
-    const wrap = document.getElementById(wrapId);
-    const row = document.createElement('div');
-    row.className = 'dynamic-row';
-    row.innerHTML = `<input type="text" name="${name}" placeholder="${placeholder}">
-                      <button type="button" class="btn-remove-row" onclick="this.parentElement.remove()">삭제</button>`;
-    wrap.appendChild(row);
+const DIAGRAM_CONFIG = <?= json_encode($diagramConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+
+function onDiagramTypeChange(typeKey) {
+  const type = DIAGRAM_CONFIG[typeKey];
+  const previewArea = document.getElementById('diagramPreviewArea');
+
+  if (!type || !type.panels || type.panels.length === 0) {
+    previewArea.innerHTML = '<p class="muted">이 동의서에는 시술 부위 도해가 없습니다.</p>';
+    return;
+  }
+
+  let html = '<div class="body-diagram-multi-wrap">';
+  type.panels.forEach(function (panel, pIdx) {
+    const zones = panel.zones;
+    const zoneCount = Array.isArray(zones) ? zones.length : 1;
+
+    html += '<div class="body-diagram-frame is-preview-only" data-panel-index="' + pIdx + '" data-zone-count="' + zoneCount + '">'
+          + '<img src="' + panel.image + '" class="body-diagram-photo" alt="시술 부위 도해" '
+          + 'onerror="this.parentElement.classList.add(\'diagram-img-broken\')">';
+
+    if (Array.isArray(zones)) {
+      html += '<div class="body-diagram-divider-label">';
+      zones.forEach(function (label) { html += '<span>' + label + '</span>'; });
+      html += '</div>';
+    }
+
+    html += '</div>';
+  });
+  html += '</div>';
+
+  previewArea.innerHTML = html;
 }
-function addTextareaRow(wrapId, name, placeholder) {
-    const wrap = document.getElementById(wrapId);
-    const row = document.createElement('div');
-    row.className = 'dynamic-row';
-    row.innerHTML = `<textarea name="${name}" rows="2" placeholder="${placeholder}"></textarea>
-                      <button type="button" class="btn-remove-row" onclick="this.parentElement.remove()">삭제</button>`;
-    wrap.appendChild(row);
-}
-function syncRefundEditor() {
-    document.getElementById('refund-hidden').value = document.getElementById('refund-editor').innerHTML;
-}
+
+document.getElementById('consentEditForm').addEventListener('submit', function () {
+  if (typeof collectChecklistGroups === 'function') {
+    document.getElementById('checklist_items_json').value = JSON.stringify({
+      groups: collectChecklistGroups()
+    });
+  }
+});
 </script>
 
-<?php require_once __DIR__ . '/includes/layout_foot.php'; ?>
+<?php require_once __DIR__ . '/includes/flow_foot.php'; ?>

@@ -1,0 +1,59 @@
+INSERT INTO ss_consent_templates
+(id, store_id, industry, title, content, checklist_items, agreement_clauses,
+ refund_policy, template_file_url, diagram_type, version, is_active, created_at)
+VALUES (
+  UUID(),
+  (SELECT id FROM ss_stores WHERE name = '시카스튜디오' LIMIT 1),
+  'common',
+  '개인정보 수집·이용 동의서',
+  '<p>본 매장은 「개인정보 보호법」 제15조 및 관련 법령에 따라 고객님의 개인정보를 아래와 같이 수집·이용하고자 합니다.</p>
+   <h4>1. 수집 항목</h4>
+   <ul>
+     <li>[필수] 성명, 휴대전화번호, 성별, 생년월일(연령 확인용), 방문일 및 시술 이력</li>
+     <li>[선택] 건강 관련 특이사항, 마케팅 수신 동의 여부</li>
+   </ul>
+   <h4>2. 수집·이용 목적</h4>
+   <ul>
+     <li>시술 동의 확인 및 고객 본인 확인</li>
+     <li>미성년자(만 19세 미만) 시술 방지를 위한 연령 확인</li>
+     <li>시술 기록 관리 및 고객 상담</li>
+     <li>분쟁 발생 시 사실 확인 및 법적 대응</li>
+   </ul>
+   <h4>3. 보유 및 이용 기간</h4>
+   <p>수집된 개인정보는 최종 방문일로부터 5년 동안 보관 후 지체 없이 파기합니다.</p>
+   <p class="muted">※ 타투 시술의 영구적 특성과 잠재적 분쟁 가능성을 고려하여 일반 서비스보다 보관 기간이 깁니다.</p>
+   <h4>4. 동의 거부 권리</h4>
+   <p>고객님은 개인정보 수집·이용에 대해 동의를 거부할 권리가 있습니다. 다만 필수 항목에 대한 동의를 거부하시면 시술이 불가합니다.</p>',
+  JSON_OBJECT(
+    'groups', JSON_ARRAY(
+      JSON_OBJECT(
+        'group_title', '필수 수집 항목 동의',
+        'group_note', '아래 항목은 시술 진행을 위해 반드시 동의가 필요합니다.',
+        'required_all', true,
+        'items', JSON_ARRAY(
+          '성명, 휴대전화번호, 성별, 생년월일(연령 확인용) 수집·이용에 동의합니다.',
+          '방문일 및 시술 이력 수집·이용에 동의합니다.',
+          '미성년자(만 19세 미만) 시술 방지를 위한 연령 확인에 동의합니다.'
+        )
+      ),
+      JSON_OBJECT(
+        'group_title', '선택 수집 항목 동의',
+        'group_note', '선택 항목에 동의하지 않아도 시술 진행에는 영향이 없습니다.',
+        'required_all', false,
+        'items', JSON_ARRAY(
+          '건강 관련 특이사항(기저질환, 알레르기, 복용 약물 등) 수집·이용에 동의합니다.',
+          '이벤트·프로모션 등 마케팅 정보 수신에 동의합니다.'
+        )
+      )
+    )
+  ),
+  JSON_OBJECT(
+    'final_text', '위 내용을 충분히 읽고 이해하였으며, 개인정보 수집·이용에 동의합니다.'
+  ),
+  NULL,
+  NULL,
+  'none',
+  1,
+  1,
+  NOW()
+);
