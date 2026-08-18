@@ -1,48 +1,176 @@
 <?php
 /**
- * includes/diagram_render.php
- * 용도: consent-edit.php 미리보기 영역 (읽기 전용 렌더링)
- * 필수 변수: $diagramType (정규화 완료된 키여야 함 — 호출 전 normalizeDiagramTypeKey() 사용)
+ * 시술 부위 표시 섹션 렌더링 (보기/수정/서명 화면 공용)
+ *
+ * 필요 변수 (호출 전에 반드시 세팅)
+ *   $diagramType : 템플릿에 저장된 diagram_type (예: front_back)
+ *   $readOnly    : true = 보기/미리보기(클릭 불가), false = 서명 화면(마커 클릭 가능)
+ *   $maxMarkers  : 최대 마커 수 (기본 6)
+ *   $existingMarkers : 이미 서명된 문서를 다시 볼 때 넣을 마커 배열 (선택, 없으면 빈 배열)
  */
+$diagramConfig = require __DIR__ . '/diagram_config.php';
+$diagramType   = $diagramType ?? 'none';
+$readOnly      = $readOnly ?? true;
+$maxMarkers    = $maxMarkers ?? 6;
+$existingMarkers = $existingMarkers ?? [];
 
-if (!isset($diagramType)) {
+// diagram_type이 config 목록에 없는 값이면 안전하게 'none' 처리 + 로그
+if (!array_key_exists($diagramType, $diagramConfig)) {
+    error_log('[diagram_render] 알 수 없는 diagram_type: ' . var_export($diagramType, true));
     $diagramType = 'none';
 }
 
-$diagramConfigForRender = include __DIR__ . '/diagram_config.php';
-
-if (!array_key_exists($diagramType, $diagramConfigForRender)) {
-    // 이 지점까지 매칭 안 된 값이 온다면 호출부에서 normalizeDiagramTypeKey()를 안 거쳤다는 뜻
-    error_log('[diagram_render] 정규화되지 않은 diagram_type이 전달됨: ' . $diagramType);
-    $diagramType = 'none';
-}
-
-$panelsForRender = $diagramConfigForRender[$diagramType]['panels'] ?? [];
+$currentDiagram = $diagramConfig[$diagramType];
 ?>
 
-<?php if (!empty($panelsForRender)): ?>
-  <div class="body-diagram-multi-wrap">
-    <?php foreach ($panelsForRender as $pIdx => $panel):
-        $zoneLabels = is_array($panel['zones']) ? $panel['zones'] : null;
-        $zoneCount  = $zoneLabels ? count($zoneLabels) : 1;
-    ?>
-      <div class="body-diagram-frame is-preview-only"
-           data-panel-index="<?= $pIdx ?>"
-           data-zone-count="<?= $zoneCount ?>">
-        <img src="<?= htmlspecialchars($panel['image']) ?>"
-             alt="시술 부위 도해"
-             class="body-diagram-photo"
-             onerror="this.parentElement.classList.add('diagram-img-broken')">
-        <?php if ($zoneLabels): ?>
-          <div class="body-diagram-divider-label">
-            <?php foreach ($zoneLabels as $label): ?>
-              <span><?= htmlspecialchars($label) ?></span>
+<?php if ($diagramType !== 'none'): ?>
+<div class="diagram-section">
+    <div class="diagram-section-header">
+        <h3 class="diagram-section-title">
+            시술 부위 표시
+            <span class="diagram-toggle-badge">ON</span>
+        </h3>
+        <p class="diagram-section-desc">
+            시술 부위와 피해야 할 부위를 앞면 또는 뒷면에 표시해 주세요.
+        </p>
+    </div>
+
+    <?php if (empty($currentDiagram['images'])): ?>
+        <div class="diagram-empty-notice">
+            ⚠ 이 동의서에 설정된 도해 이미지가 없습니다. 관리자에게 문의해 주세요.
+        </div>
+    <?php else: ?>
+        <div class="body-diagram-multi-wrap">
+            <?php foreach ($currentDiagram['images'] as $panelIndex => $imageSrc): ?>
+                <div class="body-diagram-panel"
+                     data-panel-index="<?= $panelIndex ?>"
+                     data-max-markers="<?= (int)$maxMarkers ?>">
+
+                    <div class="body-diagram-frame<?= $readOnly ? ' is-preview-only' : '' ?>"
+                         data-panel-index="<?= $panelIndex ?>">
+                        <img src="<?= htmlspecialchars($imageSrc) ?>?v=2"
+                             alt="<?= htmlspecialchars($currentDiagram['label']) ?> 도해"
+                             onerror="this.closest('.body-diagram-frame').classList.add('diagram-img-broken'); this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb-broken',innerText:'이미지를 불러올 수 없습니다'}));">
+                        <div class="body-diagram-marker-layer" data-panel-index="<?= $panelIndex ?>"></div>
+                    </div>
+
+                    <?php if (!empty($currentDiagram['zones'])): ?>
+                        <?php foreach ($currentDiagram['zones'] as $zoneIndex => $zoneLabel): ?>
+                            <?php
+                                $fieldName = "body_markers_p{$panelIndex}_z{$zoneIndex}";
+                                $fieldValue = isset($existingMarkers[$fieldName])
+                                    ? htmlspecialchars(json_encode($existingMarkers[$fieldName], JSON_UNESCAPED_UNICODE))
+                                    : '[]';
+                            ?>
+                            <div class="diagram-zone-label"><?= htmlspecialchars($zoneLabel) ?></div>
+                            <input type="hidden"
+                                   name="<?= $fieldName ?>"
+                                   id="<?= $fieldName ?>"
+                                   value="<?= $fieldValue ?>">
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <?php
+                            $fieldName = "body_markers_p{$panelIndex}_z0";
+                            $fieldValue = isset($existingMarkers[$fieldName])
+                                ? htmlspecialchars(json_encode($existingMarkers[$fieldName], JSON_UNESCAPED_UNICODE))
+                                : '[]';
+                        ?>
+                        <input type="hidden"
+                               name="<?= $fieldName ?>"
+                               id="<?= $fieldName ?>"
+                               value="<?= $fieldValue ?>">
+                    <?php endif; ?>
+                </div>
             <?php endforeach; ?>
-          </div>
+        </div>
+
+        <?php if (!$readOnly): ?>
+        <div class="diagram-marker-badge">
+            표시된 부위: <span id="diagramMarkerCount">0</span>/<?= (int)$maxMarkers ?>
+        </div>
+        <script>
+        (function () {
+            var MAX_MARKERS = <?= (int)$maxMarkers ?>;
+            var panels = document.querySelectorAll('.body-diagram-panel');
+            var totalCount = 0;
+            var countBadge = document.getElementById('diagramMarkerCount');
+
+            function refreshBadge() {
+                if (countBadge) countBadge.textContent = totalCount;
+            }
+
+            panels.forEach(function (panel) {
+                var panelIndex = panel.getAttribute('data-panel-index');
+                var frame = panel.querySelector('.body-diagram-frame');
+                var layer = panel.querySelector('.body-diagram-marker-layer');
+                if (!frame || !layer) return;
+
+                // 영역(zone) 판단: 프레임을 좌/우 절반으로 나눠 zone0/zone1 결정 (front_back, face_body 대응)
+                var hiddenInputs = panel.querySelectorAll('input[type="hidden"]');
+                var zoneInputs = {};
+                hiddenInputs.forEach(function (input) {
+                    var match = input.name.match(/^body_markers_p\d+_z(\d+)$/);
+                    if (match) {
+                        zoneInputs[match[1]] = input;
+                        try {
+                            var existing = JSON.parse(input.value || '[]');
+                            existing.forEach(function (m) {
+                                totalCount++;
+                                drawMarker(layer, m.x, m.y, input, zoneInputs);
+                            });
+                        } catch (e) {}
+                    }
+                });
+                refreshBadge();
+
+                frame.addEventListener('click', function (e) {
+                    if (frame.classList.contains('is-preview-only')) return;
+                    if (totalCount >= MAX_MARKERS) {
+                        alert('최대 ' + MAX_MARKERS + '개까지 표시할 수 있습니다.');
+                        return;
+                    }
+                    var rect = frame.getBoundingClientRect();
+                    var xPct = ((e.clientX - rect.left) / rect.width) * 100;
+                    var yPct = ((e.clientY - rect.top) / rect.height) * 100;
+
+                    var zoneKey = Object.keys(zoneInputs).length > 1
+                        ? (xPct < 50 ? '0' : '1')
+                        : Object.keys(zoneInputs)[0];
+                    var targetInput = zoneInputs[zoneKey];
+                    if (!targetInput) return;
+
+                    var arr = [];
+                    try { arr = JSON.parse(targetInput.value || '[]'); } catch (err) { arr = []; }
+                    arr.push({ x: xPct.toFixed(2), y: yPct.toFixed(2) });
+                    targetInput.value = JSON.stringify(arr);
+
+                    totalCount++;
+                    drawMarker(layer, xPct, yPct, targetInput, zoneInputs);
+                    refreshBadge();
+                });
+            });
+
+            function drawMarker(layer, xPct, yPct, targetInput, zoneInputs) {
+                var dot = document.createElement('div');
+                dot.className = 'body-diagram-marker-dot';
+                dot.style.left = xPct + '%';
+                dot.style.top = yPct + '%';
+                dot.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    var arr = [];
+                    try { arr = JSON.parse(targetInput.value || '[]'); } catch (err) { arr = []; }
+                    var idx = Array.from(dot.parentNode.children).indexOf(dot);
+                    arr.splice(idx, 1);
+                    targetInput.value = JSON.stringify(arr);
+                    dot.remove();
+                    totalCount--;
+                    refreshBadge();
+                });
+                layer.appendChild(dot);
+            }
+        })();
+        </script>
         <?php endif; ?>
-      </div>
-    <?php endforeach; ?>
-  </div>
-<?php else: ?>
-  <p class="muted">이 동의서에는 시술 부위 도해가 없습니다.</p>
+    <?php endif; ?>
+</div>
 <?php endif; ?>

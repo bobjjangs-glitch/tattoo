@@ -3,9 +3,16 @@ $activePage = 'consent';
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
 require_once __DIR__ . '/api/utils/Uuid.php';
+require_once __DIR__ . '/includes/diagram_helper.php';
 
 $user = requireLogin();
 $pdo = getDbConnection();
+
+$diagramConfig = include __DIR__ . '/includes/diagram_config.php';
+if (!is_array($diagramConfig) || empty($diagramConfig)) {
+    http_response_code(500);
+    die('시술 부위 도해 설정 파일을 불러오지 못했습니다.');
+}
 
 $storeId = $_GET['id'] ?? '';
 if ($storeId === '') {
@@ -23,15 +30,40 @@ if (!$store) {
 
 $errorMessage = '';
 
+// ── 체크리스트 JSON 정규화 (그룹 배열 형태로 항상 통일) ──
+function normalizeChecklistGroupsForSave(string $rawJson): string {
+    $decoded = json_decode($rawJson, true);
+    if (!is_array($decoded) || !isset($decoded['groups']) || !is_array($decoded['groups'])) {
+        return json_encode(['groups' => []], JSON_UNESCAPED_UNICODE);
+    }
+    $groups = [];
+    foreach ($decoded['groups'] as $g) {
+        $items = array_values(array_filter(array_map('trim', $g['items'] ?? []), fn($v) => $v !== ''));
+        if (($g['group_title'] ?? '') === '' && empty($items)) continue;
+        $groups[] = [
+            'group_title'  => trim($g['group_title'] ?? ''),
+            'group_note'   => trim($g['group_note'] ?? ''),
+            'required_all' => !empty($g['required_all']),
+            'items'        => $items,
+        ];
+    }
+    return json_encode(['groups' => $groups], JSON_UNESCAPED_UNICODE);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'save') {
-        $templateId = $_POST['template_id'] ?? '';
-        $title = trim($_POST['title'] ?? '');
-        $industry = trim($_POST['industry'] ?? '');
-        $content = $_POST['content'] ?? '';
-        $diagramType = $_POST['diagram_type'] ?? 'none';
+        $templateId    = $_POST['template_id'] ?? '';
+        $title         = trim($_POST['title'] ?? '');
+        $industry      = trim($_POST['industry'] ?? '');
+        $content       = $_POST['content'] ?? '';
+        $diagramTypeRaw = $_POST['diagram_type'] ?? 'none';
+        $diagramType   = normalizeDiagramTypeKey($diagramTypeRaw, $diagramConfig);
+        $refundPolicy  = trim($_POST['refund_policy'] ?? '');
+        $checklistJson = normalizeChecklistGroupsForSave($_POST['checklist_items_json'] ?? '{"groups":[]}');
+        $finalAgreeText = trim($_POST['final_agree_text'] ?? '위 내용을 충분히 읽고 이해하였으며, 시술에 동의합니다.');
+        $agreementJson = json_encode(['final_text' => $finalAgreeText], JSON_UNESCAPED_UNICODE);
 
         $errors = [];
         if ($title === '' || mb_strlen($title) > 255) {
@@ -41,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = '카테고리를 입력해주세요.';
         }
 
-        $allowedTags = '<h1><h2><h3><b><i><u><s><strong><em><ul><ol><li><br><p><div><span><a>';
+        $allowedTags = '<h1><h2><h3><h4><b><i><u><s><strong><em><ul><ol><li><br><p><div><span><a>';
         $safeContent = strip_tags($content, $allowedTags);
 
         if (empty($errors)) {
@@ -51,16 +83,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $checkStmt->execute([$templateId, $storeId]);
                     if ($checkStmt->fetch()) {
                         $upd = $pdo->prepare('UPDATE ss_consent_templates
-                            SET title = ?, industry = ?, content = ?, diagram_type = ?, version = version + 1
+                            SET title = ?, industry = ?, content = ?, checklist_items = ?,
+                                agreement_clauses = ?, refund_policy = ?, diagram_type = ?,
+                                version = version + 1
                             WHERE id = ?');
-                        $upd->execute([$title, $industry, $safeContent, $diagramType, $templateId]);
+                        $upd->execute([$title, $industry, $safeContent, $checklistJson,
+                            $agreementJson, $refundPolicy ?: null, $diagramType, $templateId]);
                     }
                 } else {
                     $newId = Uuid::v4();
                     $ins = $pdo->prepare('INSERT INTO ss_consent_templates
-                        (id, store_id, industry, title, content, diagram_type, version, is_active)
-                        VALUES (?, ?, ?, ?, ?, ?, 1, 1)');
-                    $ins->execute([$newId, $storeId, $industry, $title, $safeContent, $diagramType]);
+                        (id, store_id, industry, title, content, checklist_items, agreement_clauses,
+                         refund_policy, diagram_type, version, is_active, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())');
+                    $ins->execute([$newId, $storeId, $industry, $title, $safeContent, $checklistJson,
+                        $agreementJson, $refundPolicy ?: null, $diagramType]);
                 }
                 header('Location: consent.php?id=' . urlencode($storeId) . '&saved=1');
                 exit;
@@ -105,12 +142,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$listStmt = $pdo->prepare('SELECT id, title, industry, content, diagram_type, template_file_url, version, is_active, created_at
+$listStmt = $pdo->prepare('SELECT id, title, industry, content, checklist_items, agreement_clauses,
+                                   refund_policy, diagram_type, template_file_url, version, is_active, created_at
                             FROM ss_consent_templates
                             WHERE store_id = ?
                             ORDER BY created_at DESC');
 $listStmt->execute([$storeId]);
-$templates = $listStmt->fetchAll();
+$templatesRaw = $listStmt->fetchAll();
+
+// diagram_type을 화면/JS로 넘기기 전에 반드시 정규화 — 구형 값이 남아있어도 항상 유효한 키로 보정
+$templates = array_map(function ($t) use ($diagramConfig) {
+    $t['diagram_type'] = normalizeDiagramTypeKey($t['diagram_type'] ?? 'none', $diagramConfig);
+    return $t;
+}, $templatesRaw);
 
 $industries = [];
 foreach ($templates as $t) {
@@ -118,11 +162,7 @@ foreach ($templates as $t) {
 }
 
 function consentBadgeClass(string $industry): string {
-    $map = [
-        '타투' => 'cat-tattoo',
-        '공통' => 'cat-common',
-        '피부관리' => 'cat-skin',
-    ];
+    $map = ['타투' => 'cat-tattoo', '공통' => 'cat-common', '피부관리' => 'cat-skin'];
     return $map[$industry] ?? '';
 }
 
@@ -193,7 +233,7 @@ require_once __DIR__ . '/includes/layout_head.php';
     </main>
 </div>
 
-<!-- 생성/수정 모달 -->
+<!-- ===== 생성/수정 모달 ===== -->
 <div class="modal-overlay" id="consentModal" style="display:none;">
     <div class="modal-box modal-lg" style="position:relative;">
         <button type="button" class="modal-close-btn" onclick="closeModal()">✕</button>
@@ -201,6 +241,7 @@ require_once __DIR__ . '/includes/layout_head.php';
         <form method="post" id="consentForm">
             <input type="hidden" name="action" value="save">
             <input type="hidden" name="template_id" id="formTemplateId" value="">
+            <input type="hidden" name="checklist_items_json" id="checklistItemsJson" value='{"groups":[]}'>
 
             <div class="form-group">
                 <label>제목 *</label>
@@ -215,31 +256,42 @@ require_once __DIR__ . '/includes/layout_head.php';
             <div class="form-group">
                 <label>내용 *</label>
                 <div class="editor-toolbar">
-                    <button type="button" onclick="ex('formatBlock','H3')">H</button>
+                    <button type="button" onclick="ex('formatBlock','H4')">H</button>
                     <button type="button" onclick="ex('bold')"><b>B</b></button>
                     <button type="button" onclick="ex('italic')"><i>I</i></button>
                     <button type="button" onclick="ex('underline')"><u>U</u></button>
-                    <button type="button" onclick="ex('strikeThrough')"><s>S</s></button>
-                    <button type="button" onclick="ex('justifyLeft')">≡</button>
-                    <button type="button" onclick="ex('justifyCenter')">≣</button>
-                    <button type="button" onclick="ex('justifyRight')">≡</button>
                     <button type="button" onclick="ex('insertUnorderedList')">•</button>
                     <button type="button" onclick="ex('insertOrderedList')">1.</button>
-                    <button type="button" onclick="insertLink()">🔗</button>
                 </div>
-                <div class="editor-body" id="contentEditor" contenteditable="true" data-placeholder="동의서 내용을 입력해주세요"></div>
+                <div class="editor-body" id="contentEditor" contenteditable="true" data-placeholder="동의서 본문(1. 시술 전 필수사항, 2. 위험성 ... 형태로 작성)"></div>
                 <input type="hidden" name="content" id="contentHidden">
             </div>
 
             <div class="form-group">
-                <label>시술 부위 도식</label>
-                <select name="diagram_type" id="formDiagram" class="diagram-select">
-                    <option value="none">사용하지 않음</option>
-                    <option value="body_front_back">전신 (앞/뒤)</option>
-                    <option value="face">얼굴</option>
-                    <option value="hand_foot">손/발</option>
-                </select>
-                <p class="diagram-select-hint">고객이 동의서 작성 시 시술 부위를 체크박스로 표시할 수 있습니다.</p>
+                <label>체크리스트 그룹 (오늘 예정된 시술 / 사전 확인 사항 등)</label>
+                <div id="checklistGroupEditor" class="checklist-group-editor"></div>
+                <button type="button" class="btn-mini" id="btnAddGroup">+ 그룹 추가</button>
+            </div>
+
+            <div class="form-group">
+                <label>최종 동의 문구</label>
+                <input type="text" name="final_agree_text" id="formFinalAgree"
+                       placeholder="예: 위 내용을 충분히 읽고 이해하였으며, 시술에 동의합니다.">
+            </div>
+
+            <div class="form-group">
+                <label>환불 정책 (선택)</label>
+                <textarea name="refund_policy" id="formRefundPolicy" class="field-textarea" rows="3"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>시술 부위 표시</label>
+                <div class="diagram-type-selector" id="diagramTypeSelector"></div>
+                <div class="diagram-preview-box">
+                    <div class="diagram-preview-label">미리보기</div>
+                    <div id="diagramPreviewArea"></div>
+                </div>
+                <input type="hidden" name="diagram_type" id="formDiagram" value="none">
             </div>
 
             <?php if ($errorMessage !== ''): ?>
@@ -254,40 +306,152 @@ require_once __DIR__ . '/includes/layout_head.php';
     </div>
 </div>
 
-<!-- 읽기 전용 보기 모달 -->
+<!-- ===== 읽기 전용 보기 모달 ===== -->
 <div class="modal-overlay" id="viewModal" style="display:none;">
     <div class="modal-box modal-lg" style="position:relative;">
         <button type="button" class="modal-close-btn" onclick="document.getElementById('viewModal').style.display='none'">✕</button>
         <h2 class="modal-title" id="viewTitle"></h2>
-        <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;" id="viewMeta"></p>
-        <div class="sign-content-box" id="viewContent"></div>
+        <div id="viewBody"></div>
     </div>
 </div>
 
 <script>
 const templates = <?php echo json_encode($templates, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG); ?>;
+const DIAGRAM_CONFIG = <?php echo json_encode($diagramConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
 
+let checklistGroups = [];
+
+function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- 리치 에디터 ---------- */
 function ex(cmd, val) {
     document.execCommand(cmd, false, val || null);
     document.getElementById('contentEditor').focus();
 }
-function insertLink() {
-    const url = prompt('링크 주소를 입력하세요');
-    if (url) { ex('createLink', url); }
-}
 function syncContent() {
     document.getElementById('contentHidden').value = document.getElementById('contentEditor').innerHTML;
+    document.getElementById('checklistItemsJson').value = JSON.stringify({ groups: collectChecklistGroups() });
     return true;
 }
+
+/* ---------- 체크리스트 그룹 편집기 ---------- */
+function renderChecklistEditor() {
+    const wrap = document.getElementById('checklistGroupEditor');
+    wrap.innerHTML = '';
+    checklistGroups.forEach((group, gIdx) => {
+        const box = document.createElement('div');
+        box.className = 'checklist-group-box';
+        box.innerHTML = `
+            <div class="checklist-group-row">
+                <input type="text" class="field-input" placeholder="그룹 제목 (예: 오늘 예정된 시술)" data-gidx="${gIdx}" data-role="title" value="${escapeHtml(group.group_title)}">
+                <label class="checklist-required-toggle">
+                    <input type="checkbox" data-gidx="${gIdx}" data-role="required" ${group.required_all ? 'checked' : ''}> 전체 필수
+                </label>
+                <button type="button" class="btn-mini danger" data-gidx="${gIdx}" data-action="remove-group">그룹 삭제</button>
+            </div>
+            <input type="text" class="field-input checklist-group-note-input" placeholder="그룹 설명(선택)" data-gidx="${gIdx}" data-role="note" value="${escapeHtml(group.group_note)}">
+            <div class="checklist-item-list">
+                ${group.items.map((item, iIdx) => `
+                    <div class="checklist-item-row">
+                        <input type="text" class="field-input" placeholder="항목 내용" data-gidx="${gIdx}" data-iidx="${iIdx}" data-role="item" value="${escapeHtml(item)}">
+                        <button type="button" class="btn-mini danger" data-gidx="${gIdx}" data-iidx="${iIdx}" data-action="remove-item">삭제</button>
+                    </div>`).join('')}
+            </div>
+            <button type="button" class="btn-mini" data-gidx="${gIdx}" data-action="add-item">+ 항목 추가</button>
+        `;
+        wrap.appendChild(box);
+    });
+
+    wrap.querySelectorAll('[data-role="title"]').forEach(el => el.addEventListener('input', function () { checklistGroups[this.dataset.gidx].group_title = this.value; }));
+    wrap.querySelectorAll('[data-role="note"]').forEach(el => el.addEventListener('input', function () { checklistGroups[this.dataset.gidx].group_note = this.value; }));
+    wrap.querySelectorAll('[data-role="required"]').forEach(el => el.addEventListener('change', function () { checklistGroups[this.dataset.gidx].required_all = this.checked; }));
+    wrap.querySelectorAll('[data-role="item"]').forEach(el => el.addEventListener('input', function () { checklistGroups[this.dataset.gidx].items[this.dataset.iidx] = this.value; }));
+    wrap.querySelectorAll('[data-action="remove-group"]').forEach(el => el.addEventListener('click', function () { checklistGroups.splice(this.dataset.gidx, 1); renderChecklistEditor(); }));
+    wrap.querySelectorAll('[data-action="remove-item"]').forEach(el => el.addEventListener('click', function () { checklistGroups[this.dataset.gidx].items.splice(this.dataset.iidx, 1); renderChecklistEditor(); }));
+    wrap.querySelectorAll('[data-action="add-item"]').forEach(el => el.addEventListener('click', function () { checklistGroups[this.dataset.gidx].items.push(''); renderChecklistEditor(); }));
+}
+document.getElementById('btnAddGroup').addEventListener('click', () => {
+    checklistGroups.push({ group_title: '', group_note: '', required_all: false, items: [''] });
+    renderChecklistEditor();
+});
+function collectChecklistGroups() {
+    return checklistGroups
+        .filter(g => g.group_title.trim() !== '' || g.items.some(it => it.trim() !== ''))
+        .map(g => ({ group_title: g.group_title, group_note: g.group_note, required_all: !!g.required_all, items: g.items.filter(it => it.trim() !== '') }));
+}
+
+/* ---------- 도해 타입 선택 카드 ---------- */
+function renderDiagramSelector(selectedKey) {
+    const wrap = document.getElementById('diagramTypeSelector');
+    wrap.innerHTML = '';
+    Object.keys(DIAGRAM_CONFIG).forEach(key => {
+        const type = DIAGRAM_CONFIG[key];
+        const isSelected = (key === selectedKey);
+        const card = document.createElement('label');
+        card.className = 'diagram-type-card' + (isSelected ? ' is-selected' : '');
+        card.innerHTML = `
+            <input type="radio" name="diagram_type_radio" value="${key}" ${isSelected ? 'checked' : ''}>
+            <div class="diagram-type-thumb-wrap ${type.thumb ? '' : 'diagram-type-thumb-empty'}">
+                ${type.thumb ? `<img src="${type.thumb}" alt="${type.label}" onerror="this.closest('.diagram-type-thumb-wrap').classList.add('thumb-broken')">` : '없음'}
+            </div>
+            <span class="diagram-type-name">${escapeHtml(type.label)}</span>
+        `;
+        card.querySelector('input').addEventListener('change', function () {
+            document.querySelectorAll('#diagramTypeSelector .diagram-type-card').forEach(c => c.classList.remove('is-selected'));
+            card.classList.add('is-selected');
+            document.getElementById('formDiagram').value = key;
+            renderDiagramPreview(key);
+        });
+        wrap.appendChild(card);
+    });
+}
+function renderDiagramPreview(typeKey) {
+    const type = DIAGRAM_CONFIG[typeKey];
+    const area = document.getElementById('diagramPreviewArea');
+    if (!type || !type.panels || type.panels.length === 0) {
+        area.innerHTML = '<p class="muted">이 동의서에는 시술 부위 도해가 없습니다.</p>';
+        return;
+    }
+    area.innerHTML = buildDiagramHtml(type.panels);
+}
+function buildDiagramHtml(panels) {
+    let html = '<div class="body-diagram-multi-wrap">';
+    panels.forEach(panel => {
+        const zones = panel.zones;
+        html += `<div class="body-diagram-frame${Array.isArray(zones) ? ' has-zones' : ''}">
+            <img src="${panel.image}" class="body-diagram-photo" alt="시술 부위 도해" onerror="this.parentElement.classList.add('diagram-img-broken')">
+            <div class="body-diagram-grid"></div>`;
+        if (Array.isArray(zones)) {
+            html += '<div class="body-diagram-divider-label">' + zones.map(z => `<span>${escapeHtml(z)}</span>`).join('') + '</div>';
+        }
+        html += '</div>';
+    });
+    html += '</div>';
+    return html;
+}
+
+/* ---------- 모달 열기/닫기 ---------- */
 function openCreateModal() {
     document.getElementById('modalTitle').textContent = '새 동의서 작성';
     document.getElementById('formTemplateId').value = '';
     document.getElementById('formTitle').value = '';
     document.getElementById('formIndustry').value = '';
     document.getElementById('contentEditor').innerHTML = '';
+    document.getElementById('formFinalAgree').value = '위 내용을 충분히 읽고 이해하였으며, 시술에 동의합니다.';
+    document.getElementById('formRefundPolicy').value = '';
     document.getElementById('formDiagram').value = 'none';
+    checklistGroups = [
+        { group_title: '오늘 예정된 시술', group_note: '', required_all: false, items: ['신규 타투', '리터치', '커버업·수정', '컬러 작업'] },
+        { group_title: '사전에 알려야 할 상태', group_note: '해당하는 항목이 있으면 반드시 알려주세요.', required_all: true, items: [''] },
+    ];
+    renderChecklistEditor();
+    renderDiagramSelector('none');
+    renderDiagramPreview('none');
     document.getElementById('consentModal').style.display = 'flex';
 }
+
 function openEditModal(id) {
     const t = templates.find(x => x.id === id);
     if (!t) return;
@@ -296,20 +460,79 @@ function openEditModal(id) {
     document.getElementById('formTitle').value = t.title;
     document.getElementById('formIndustry').value = t.industry;
     document.getElementById('contentEditor').innerHTML = t.content || '';
-    document.getElementById('formDiagram').value = t.diagram_type || 'none';
+
+    const checklist = safeParse(t.checklist_items, { groups: [] });
+    checklistGroups = (checklist.groups || []).map(g => ({
+        group_title: g.group_title || '', group_note: g.group_note || '',
+        required_all: !!g.required_all, items: (g.items && g.items.length) ? g.items.slice() : [''],
+    }));
+    if (checklistGroups.length === 0) checklistGroups = [{ group_title: '', group_note: '', required_all: false, items: [''] }];
+    renderChecklistEditor();
+
+    const agreement = safeParse(t.agreement_clauses, { final_text: '' });
+    document.getElementById('formFinalAgree').value = agreement.final_text || '위 내용을 충분히 읽고 이해하였으며, 시술에 동의합니다.';
+    document.getElementById('formRefundPolicy').value = t.refund_policy || '';
+
+    const diagramKey = t.diagram_type || 'none';
+    document.getElementById('formDiagram').value = diagramKey;
+    renderDiagramSelector(diagramKey);
+    renderDiagramPreview(diagramKey);
+
     document.getElementById('consentModal').style.display = 'flex';
 }
+
+function safeParse(jsonStr, fallback) {
+    try { const v = JSON.parse(jsonStr || 'null'); return v && typeof v === 'object' ? v : fallback; }
+    catch (e) { return fallback; }
+}
+
 function openViewModal(id) {
     const t = templates.find(x => x.id === id);
     if (!t) return;
     document.getElementById('viewTitle').textContent = t.title;
-    document.getElementById('viewMeta').textContent = t.industry + ' · v' + t.version + ' · ' + t.created_at;
-    document.getElementById('viewContent').innerHTML = t.content || '<span class="muted">내용이 없습니다.</span>';
+
+    const checklist = safeParse(t.checklist_items, { groups: [] });
+    const agreement = safeParse(t.agreement_clauses, { final_text: '' });
+    const diagramType = DIAGRAM_CONFIG[t.diagram_type] ? t.diagram_type : 'none';
+    const diagramInfo = DIAGRAM_CONFIG[diagramType];
+    const diagramOn = diagramType !== 'none';
+
+    let html = `<p class="consent-view-meta">${escapeHtml(t.industry)} · v${t.version} · ${escapeHtml((t.created_at || '').substring(0, 10))}</p>`;
+
+    if ((checklist.groups || []).length > 0) {
+        html += '<div class="consent-section"><div class="consent-section-title">시술 항목 및 고객 상태 확인</div>';
+        checklist.groups.forEach(g => {
+            html += `<div class="consent-checklist-box">
+                <div class="consent-checklist-box-title">${escapeHtml(g.group_title)}${g.required_all ? '<span class="badge-required">필수</span>' : ''}</div>`;
+            if (g.group_note) html += `<div class="consent-checklist-box-note">${escapeHtml(g.group_note)}</div>`;
+            (g.items || []).forEach(item => {
+                html += `<label class="consent-checklist-item"><input type="checkbox" disabled> ${escapeHtml(item)}</label>`;
+            });
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+
+    html += `<div class="consent-content-box">${t.content || '<span class="muted">내용이 없습니다.</span>'}</div>`;
+
+    if (agreement.final_text) {
+        html += `<div class="consent-final-agree-box"><label class="consent-checklist-item"><input type="checkbox" disabled> ${escapeHtml(agreement.final_text)}</label></div>`;
+    }
+
+    html += `<div class="consent-section">
+        <div class="consent-section-header-row">
+            <div class="diagram-section-title">시술 부위 표시</div>
+            <span class="diagram-toggle-badge ${diagramOn ? 'is-on' : 'is-off'}">${diagramOn ? 'ON' : 'OFF'}</span>
+        </div>
+        <div class="consent-section-note">시술 부위를 클릭하여 위치나 범위를 표시해 주세요. (최대 6개)</div>`;
+    html += diagramOn ? buildDiagramHtml(diagramInfo.panels) : '<p class="muted">이 동의서에는 시술 부위 도해가 없습니다.</p>';
+    html += '</div>';
+
+    document.getElementById('viewBody').innerHTML = html;
     document.getElementById('viewModal').style.display = 'flex';
 }
-function closeModal() {
-    document.getElementById('consentModal').style.display = 'none';
-}
+
+function closeModal() { document.getElementById('consentModal').style.display = 'none'; }
 function filterByIndustry(industry, btn) {
     document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
     btn.classList.add('active');
@@ -317,16 +540,6 @@ function filterByIndustry(industry, btn) {
         card.style.display = (industry === 'all' || card.dataset.industry === industry) ? 'flex' : 'none';
     });
 }
-<?php if ($errorMessage !== '' && ($_POST['action'] ?? '') === 'save'): ?>
-window.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('formTemplateId').value = '<?php echo htmlspecialchars($_POST['template_id'] ?? ''); ?>';
-    document.getElementById('formTitle').value = '<?php echo htmlspecialchars(addslashes($_POST['title'] ?? '')); ?>';
-    document.getElementById('formIndustry').value = '<?php echo htmlspecialchars(addslashes($_POST['industry'] ?? '')); ?>';
-    document.getElementById('contentEditor').innerHTML = <?php echo json_encode($_POST['content'] ?? '', JSON_HEX_TAG); ?>;
-    document.getElementById('modalTitle').textContent = '<?php echo ($_POST['template_id'] ?? '') !== '' ? '동의서 수정' : '새 동의서 작성'; ?>';
-    document.getElementById('consentModal').style.display = 'flex';
-});
-<?php endif; ?>
 </script>
 
 <?php require_once __DIR__ . '/includes/layout_foot.php'; ?>
