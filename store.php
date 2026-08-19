@@ -1,25 +1,27 @@
 <?php
 $activePage = 'customers';
 require_once __DIR__ . '/includes/session.php';
+require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
 
-$user = requireLogin();
 $pdo = getDbConnection();
-
 $storeId = $_GET['id'] ?? '';
 if ($storeId === '') {
     header('Location: dashboard.php');
     exit;
 }
 
-$stmt = $pdo->prepare('SELECT id, name, industry FROM ss_stores WHERE id = ? AND owner_id = ?');
-$stmt->execute([$storeId, $user['id']]);
-$store = $stmt->fetch();
+$actor = requireStoreAccess($pdo, $storeId);
 
+$stmt = $pdo->prepare('SELECT id, name, industry FROM ss_stores WHERE id = ?');
+$stmt->execute([$storeId]);
+$store = $stmt->fetch();
 if (!$store) {
     http_response_code(404);
-    die('매장을 찾을 수 없거나 접근 권한이 없습니다.');
+    die('매장을 찾을 수 없습니다.');
 }
+
+logAccess($pdo, $storeId, $actor, 'view_customer_list');
 
 $keyword = trim($_GET['keyword'] ?? '');
 $sql = 'SELECT id, name, phone_masked, gender, created_at FROM ss_customers WHERE store_id = ?';
@@ -34,6 +36,7 @@ $listStmt = $pdo->prepare($sql);
 $listStmt->execute($params);
 $customers = $listStmt->fetchAll();
 
+$actorRole = $actor['role'];
 $pageTitle = htmlspecialchars($store['name']) . ' 고객 목록';
 require_once __DIR__ . '/includes/layout_head.php';
 ?>
@@ -42,7 +45,7 @@ require_once __DIR__ . '/includes/layout_head.php';
 
     <main class="main-content">
         <header class="dashboard-header">
-            <span><?php echo htmlspecialchars($user['name'] ?? ''); ?>님</span>
+            <span><?php echo htmlspecialchars($actor['actor_name']); ?>님</span>
         </header>
 
         <div class="page-content">
@@ -66,12 +69,7 @@ require_once __DIR__ . '/includes/layout_head.php';
             <?php else: ?>
                 <table class="data-table">
                     <thead>
-                        <tr>
-                            <th>이름</th>
-                            <th>전화번호</th>
-                            <th>등록일</th>
-                            <th>관리</th>
-                        </tr>
+                        <tr><th>이름</th><th>전화번호</th><th>등록일</th><th>관리</th></tr>
                     </thead>
                     <tbody>
                         <?php foreach ($customers as $c): ?>
