@@ -9,7 +9,6 @@ $pdo = getDbConnection();
 $storeId = $_GET['store_id'] ?? ($_POST['store_id'] ?? '');
 $loginError = '';
 
-// store_id가 아예 없는 상태로 들어온 경우, 로그인 시도 전에 바로 명확히 안내
 if ($storeId === '') {
     $loginError = '잘못된 접속 경로입니다. 매장 대표에게 전달받은 직원 로그인 링크로 다시 접속해주세요.';
 }
@@ -35,6 +34,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $storeId !== '') {
         } elseif (!$staff['is_active']) {
             $loginError = '비활성화된 계정입니다. 매장 대표에게 문의해주세요.';
         } else {
+            // ★ 핵심: 직원으로 로그인하는 순간, 같은 브라우저에 남아있던 대표(owner) 세션을 반드시 제거.
+            //   이게 없으면 requireStoreAccess()가 대표 세션을 먼저 검사해버려서
+            //   방금 로그인한 직원 정보가 무시되고 대표로 처리되는 버그가 발생한다.
+            unset($_SESSION['user_id'], $_SESSION['user_email'], $_SESSION['user_name']);
+
+            session_regenerate_id(true);
             $_SESSION['staff_id'] = $staff['id'];
             $_SESSION['staff_store_id'] = $storeId;
             $_SESSION['staff_name'] = $staff['name'];

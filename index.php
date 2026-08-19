@@ -30,6 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $pdo->prepare('UPDATE ss_users SET last_login_at = NOW() WHERE id = ?')->execute([$user['id']]);
 
+                // ★ 핵심: 대표로 로그인하는 순간, 남아있던 직원 세션도 반드시 제거 (양방향 대칭 보호)
+                unset($_SESSION['staff_id'], $_SESSION['staff_store_id'], $_SESSION['staff_name']);
+
                 session_regenerate_id(true);
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['user_email'] = $user['email'];
@@ -53,8 +56,8 @@ include __DIR__ . '/includes/layout_head.php';
     <div class="auth-logo">SalonForm</div>
     <p class="auth-subtitle">이메일로 로그인하세요</p>
 
-    <?php if (!empty($error)): ?>
-      <div class="alert-error"><?php echo htmlspecialchars($error); ?></div>
+    <?php if ($errorMsg): ?>
+      <div class="alert-error"><?php echo htmlspecialchars($errorMsg); ?></div>
     <?php endif; ?>
 
     <form method="POST" action="index.php">
