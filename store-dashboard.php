@@ -35,7 +35,6 @@ $monthStart = date('Y-m-01');
 $lastMonthStart = date('Y-m-01', strtotime('-1 month'));
 $lastMonthEnd = date('Y-m-t', strtotime('-1 month'));
 
-// 통계 카드용 수치
 $newCustomersThisMonth = safeCount($pdo,
     'SELECT COUNT(*) FROM ss_customers WHERE store_id = ? AND created_at >= ?',
     [$storeId, $monthStart]);
@@ -53,7 +52,6 @@ $consentLastMonth = safeCount($pdo,
 $consentTotal = safeCount($pdo, 'SELECT COUNT(*) FROM ss_consent_documents WHERE store_id = ?', [$storeId]);
 $templateCount = safeCount($pdo, 'SELECT COUNT(*) FROM ss_consent_templates WHERE store_id = ?', [$storeId]);
 
-// 시작 가이드 체크리스트
 $hasTemplate = $templateCount > 0;
 $hasCustomer = $totalCustomers > 0;
 $hasSignedConsent = $consentTotal > 0;
@@ -71,7 +69,6 @@ if ($store['plan_status'] === 'trial' && $store['trial_ends_at']) {
     $trialDaysLeft = max(0, (int)ceil((strtotime($store['trial_ends_at']) - time()) / 86400));
 }
 
-// 최근 30일 동의서 작성 추이 (일별 카운트)
 $chartDays = [];
 for ($i = 29; $i >= 0; $i--) {
     $d = date('Y-m-d', strtotime("-{$i} day"));
@@ -92,17 +89,19 @@ $chartTotal = array_sum($chartDays);
 $chartAvg = round($chartTotal / 30, 1);
 $chartMax = max(1, max($chartDays));
 
-// 최근 등록 고객 5명
 $recentCustomers = safeFetchAll($pdo,
     'SELECT id, name, phone_masked, created_at FROM ss_customers
      WHERE store_id = ? ORDER BY created_at DESC LIMIT 5',
     [$storeId]);
 
-// 최근 동의서 활동 5건 (customer_name 컬럼이 없을 수 있어 이름은 JOIN 시도 후 실패하면 빈 배열)
+// 최근 동의서 활동 5건 — cd.id를 document_id로 그대로 사용해 상세보기 링크 연결
+// ※ ss_consent_documents.customer_id 와 ss_customers.id 의 collation 불일치로
+//   consent-history.php에서 발생했던 것과 동일한 오류가 날 수 있어 COLLATE로 미리 방어함
 $recentConsents = safeFetchAll($pdo,
     'SELECT cd.id, cd.created_at, c.name AS customer_name
      FROM ss_consent_documents cd
-     LEFT JOIN ss_customers c ON c.id = cd.customer_id
+     LEFT JOIN ss_customers c
+        ON c.id COLLATE utf8mb4_unicode_ci = cd.customer_id COLLATE utf8mb4_unicode_ci
      WHERE cd.store_id = ? ORDER BY cd.created_at DESC LIMIT 5',
     [$storeId]);
 
@@ -121,7 +120,6 @@ require_once __DIR__ . '/includes/layout_head.php';
 
     <div class="page-content">
 
-      <!-- 상단 허브 헤더 -->
       <div class="shop-hub-header-card">
         <div>
           <div class="hub-date"><?php echo date('Y. n. j. (D)'); ?></div>
@@ -138,7 +136,6 @@ require_once __DIR__ . '/includes/layout_head.php';
         </div>
       </div>
 
-      <!-- 무료체험 배너 -->
       <?php if ($trialDaysLeft !== null): ?>
         <div class="trial-banner">
           <span>⏰ 무료체험 <?php echo $trialDaysLeft; ?>일 남았습니다.</span>
@@ -146,7 +143,6 @@ require_once __DIR__ . '/includes/layout_head.php';
         </div>
       <?php endif; ?>
 
-      <!-- 시작 가이드 -->
       <div class="guide-card">
         <h2>시작 가이드</h2>
         <p style="font-size:13px;color:var(--text-sub);margin-bottom:16px;">
@@ -165,7 +161,6 @@ require_once __DIR__ . '/includes/layout_head.php';
         </div>
       </div>
 
-      <!-- 통계 카드 4개 -->
       <div class="stat-cards">
         <div class="stat-card">
           <div class="stat-label">👤 이번달 신규 고객</div>
@@ -197,7 +192,6 @@ require_once __DIR__ . '/includes/layout_head.php';
         </div>
       </div>
 
-      <!-- 최근 30일 동의서 작성 추이 차트 -->
       <div class="chart-card" style="margin-top:20px;">
         <h2>최근 30일 동의서 작성 추이</h2>
         <div class="chart-summary">총 <?php echo $chartTotal; ?>건 · 일평균 <?php echo $chartAvg; ?>건</div>
@@ -228,7 +222,6 @@ require_once __DIR__ . '/includes/layout_head.php';
         </div>
       </div>
 
-      <!-- 빠른 실행 카드 3개 -->
       <div class="quick-actions">
         <a href="store.php?id=<?php echo urlencode($storeId); ?>" class="quick-action-card" style="text-decoration:none;">
           <div class="quick-action-left">
@@ -262,7 +255,6 @@ require_once __DIR__ . '/includes/layout_head.php';
         </a>
       </div>
 
-      <!-- 최근 등록 고객 / 최근 동의서 활동 -->
       <div class="recent-grid">
         <div class="recent-card">
           <div class="recent-card-head">
@@ -296,7 +288,8 @@ require_once __DIR__ . '/includes/layout_head.php';
             <div class="recent-empty">아직 작성된 동의서가 없습니다.</div>
           <?php else: ?>
             <?php foreach ($recentConsents as $cd): ?>
-              <div class="recent-customer-item">
+              <a href="consent-document-view.php?id=<?php echo urlencode($storeId); ?>&document_id=<?php echo urlencode($cd['id']); ?>"
+                 class="recent-customer-item" style="text-decoration:none;color:inherit;">
                 <div class="recent-customer-left">
                   <div class="recent-customer-avatar">📄</div>
                   <div>
@@ -305,7 +298,7 @@ require_once __DIR__ . '/includes/layout_head.php';
                   </div>
                 </div>
                 <span class="recent-customer-arrow">›</span>
-              </div>
+              </a>
             <?php endforeach; ?>
           <?php endif; ?>
         </div>

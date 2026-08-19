@@ -36,27 +36,25 @@ $listStmt = $pdo->prepare($sql);
 $listStmt->execute($params);
 $customers = $listStmt->fetchAll();
 
-// ── 각 고객의 가장 최근 서명 완료 동의서 1건씩 조회 (없으면 배열에서 빠짐) ──
-$latestDocByCustomer = [];
+// ── 각 고객의 서명 완료 동의서 "건수"를 조회 (최근 1건만이 아니라 전체 건수) ──
+// 여러 번 서명한 고객도 개수가 그대로 보이도록, 최근 것만 남기고 가리지 않는다.
+$docCountByCustomer = [];
 if (!empty($customers)) {
     $customerIds = array_column($customers, 'id');
     $placeholders = implode(',', array_fill(0, count($customerIds), '?'));
     try {
         $docStmt = $pdo->prepare(
-            "SELECT d1.customer_id, d1.id AS document_id, d1.signed_at
-             FROM ss_consent_documents d1
-             WHERE d1.store_id = ? AND d1.customer_id IN ($placeholders)
-               AND d1.signed_at = (
-                   SELECT MAX(d2.signed_at) FROM ss_consent_documents d2
-                   WHERE d2.customer_id = d1.customer_id AND d2.store_id = d1.store_id
-               )"
+            "SELECT customer_id, COUNT(*) AS cnt
+             FROM ss_consent_documents
+             WHERE store_id = ? AND customer_id IN ($placeholders)
+             GROUP BY customer_id"
         );
         $docStmt->execute(array_merge([$storeId], $customerIds));
         foreach ($docStmt->fetchAll() as $row) {
-            $latestDocByCustomer[$row['customer_id']] = $row['document_id'];
+            $docCountByCustomer[$row['customer_id']] = (int)$row['cnt'];
         }
     } catch (Throwable $e) {
-        error_log('[store.php] 서명 기록 조회 실패: ' . $e->getMessage());
+        error_log('[store.php] 서명 건수 조회 실패: ' . $e->getMessage());
     }
 }
 
@@ -100,7 +98,7 @@ require_once __DIR__ . '/includes/layout_head.php';
                     </thead>
                     <tbody>
                         <?php foreach ($customers as $c): ?>
-                            <?php $signedDocId = $latestDocByCustomer[$c['id']] ?? null; ?>
+                            <?php $signedCount = $docCountByCustomer[$c['id']] ?? 0; ?>
                             <tr>
                                 <td>
                                     <?php echo htmlspecialchars($c['name']); ?>
@@ -109,8 +107,8 @@ require_once __DIR__ . '/includes/layout_head.php';
                                 <td><?php echo htmlspecialchars($c['phone_masked']); ?></td>
                                 <td><?php echo htmlspecialchars(date('Y. n. j.', strtotime($c['created_at']))); ?></td>
                                 <td>
-                                    <?php if ($signedDocId): ?>
-                                        <a href="consent-document-view.php?id=<?php echo urlencode($storeId); ?>&document_id=<?php echo urlencode($signedDocId); ?>" class="btn-mini">✔ 서명 내역 보기</a>
+                                    <?php if ($signedCount > 0): ?>
+                                        <a href="consent-history.php?id=<?php echo urlencode($storeId); ?>&customer_id=<?php echo urlencode($c['id']); ?>" class="btn-mini">✔ 서명 내역 보기 (<?php echo $signedCount; ?>건)</a>
                                         <a href="consent-select.php?id=<?php echo urlencode($storeId); ?>&customer_id=<?php echo urlencode($c['id']); ?>" class="btn-mini" style="margin-left:6px;">+ 새 동의서</a>
                                     <?php else: ?>
                                         <a href="consent-select.php?id=<?php echo urlencode($storeId); ?>&customer_id=<?php echo urlencode($c['id']); ?>" class="btn-mini">동의서 작성</a>
