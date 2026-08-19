@@ -4,7 +4,7 @@
  *
  * 필요 변수 (호출 전에 반드시 세팅)
  *   $diagramType : 템플릿에 저장된 diagram_type (예: front_back)
- *   $readOnly    : true = 보기/미리보기(클릭 불가), false = 서명 화면(마커 클릭 가능)
+ *   $readOnly    : true = 보기/미리보기(클릭 불가, 기존 마커만 표시), false = 서명 화면(마커 클릭 가능)
  *   $maxMarkers  : 최대 마커 수 (기본 6)
  *   $existingMarkers : 이미 서명된 문서를 다시 볼 때 넣을 마커 배열 (선택, 없으면 빈 배열)
  */
@@ -14,7 +14,6 @@ $readOnly      = $readOnly ?? true;
 $maxMarkers    = $maxMarkers ?? 6;
 $existingMarkers = $existingMarkers ?? [];
 
-// diagram_type이 config 목록에 없는 값이면 안전하게 'none' 처리 + 로그
 if (!array_key_exists($diagramType, $diagramConfig)) {
     error_log('[diagram_render] 알 수 없는 diagram_type: ' . var_export($diagramType, true));
     $diagramType = 'none';
@@ -31,7 +30,7 @@ $currentDiagram = $diagramConfig[$diagramType];
             <span class="diagram-toggle-badge">ON</span>
         </h3>
         <p class="diagram-section-desc">
-            시술 부위와 피해야 할 부위를 앞면 또는 뒷면에 표시해 주세요.
+            <?= $readOnly ? '고객이 표시한 시술 부위입니다.' : '시술 부위와 피해야 할 부위를 앞면 또는 뒷면에 표시해 주세요.' ?>
         </p>
     </div>
 
@@ -51,7 +50,30 @@ $currentDiagram = $diagramConfig[$diagramType];
                         <img src="<?= htmlspecialchars($imageSrc) ?>?v=2"
                              alt="<?= htmlspecialchars($currentDiagram['label']) ?> 도해"
                              onerror="this.closest('.body-diagram-frame').classList.add('diagram-img-broken'); this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb-broken',innerText:'이미지를 불러올 수 없습니다'}));">
-                        <div class="body-diagram-marker-layer" data-panel-index="<?= $panelIndex ?>"></div>
+                        <div class="body-diagram-marker-layer" data-panel-index="<?= $panelIndex ?>">
+                            <?php
+                            // ── 기존 마커를 항상 정적으로 그린다 (readOnly 여부와 무관) ──
+                            if (!empty($currentDiagram['zones'])) {
+                                foreach ($currentDiagram['zones'] as $zoneIndex => $zoneLabel) {
+                                    $fieldName = "body_markers_p{$panelIndex}_z{$zoneIndex}";
+                                    $markerList = $existingMarkers[$fieldName] ?? [];
+                                    foreach ($markerList as $m) {
+                                        $x = htmlspecialchars($m['x'] ?? 0);
+                                        $y = htmlspecialchars($m['y'] ?? 0);
+                                        echo "<div class=\"body-diagram-marker-dot is-static\" style=\"left:{$x}%;top:{$y}%;\"></div>";
+                                    }
+                                }
+                            } else {
+                                $fieldName = "body_markers_p{$panelIndex}_z0";
+                                $markerList = $existingMarkers[$fieldName] ?? [];
+                                foreach ($markerList as $m) {
+                                    $x = htmlspecialchars($m['x'] ?? 0);
+                                    $y = htmlspecialchars($m['y'] ?? 0);
+                                    echo "<div class=\"body-diagram-marker-dot is-static\" style=\"left:{$x}%;top:{$y}%;\"></div>";
+                                }
+                            }
+                            ?>
+                        </div>
                     </div>
 
                     <?php if (!empty($currentDiagram['zones'])): ?>
@@ -63,10 +85,12 @@ $currentDiagram = $diagramConfig[$diagramType];
                                     : '[]';
                             ?>
                             <div class="diagram-zone-label"><?= htmlspecialchars($zoneLabel) ?></div>
+                            <?php if (!$readOnly): ?>
                             <input type="hidden"
                                    name="<?= $fieldName ?>"
                                    id="<?= $fieldName ?>"
                                    value="<?= $fieldValue ?>">
+                            <?php endif; ?>
                         <?php endforeach; ?>
                     <?php else: ?>
                         <?php
@@ -75,10 +99,12 @@ $currentDiagram = $diagramConfig[$diagramType];
                                 ? htmlspecialchars(json_encode($existingMarkers[$fieldName], JSON_UNESCAPED_UNICODE))
                                 : '[]';
                         ?>
+                        <?php if (!$readOnly): ?>
                         <input type="hidden"
                                name="<?= $fieldName ?>"
                                id="<?= $fieldName ?>"
                                value="<?= $fieldValue ?>">
+                        <?php endif; ?>
                     <?php endif; ?>
                 </div>
             <?php endforeach; ?>
@@ -100,12 +126,10 @@ $currentDiagram = $diagramConfig[$diagramType];
             }
 
             panels.forEach(function (panel) {
-                var panelIndex = panel.getAttribute('data-panel-index');
                 var frame = panel.querySelector('.body-diagram-frame');
                 var layer = panel.querySelector('.body-diagram-marker-layer');
                 if (!frame || !layer) return;
 
-                // 영역(zone) 판단: 프레임을 좌/우 절반으로 나눠 zone0/zone1 결정 (front_back, face_body 대응)
                 var hiddenInputs = panel.querySelectorAll('input[type="hidden"]');
                 var zoneInputs = {};
                 hiddenInputs.forEach(function (input) {
@@ -114,10 +138,7 @@ $currentDiagram = $diagramConfig[$diagramType];
                         zoneInputs[match[1]] = input;
                         try {
                             var existing = JSON.parse(input.value || '[]');
-                            existing.forEach(function (m) {
-                                totalCount++;
-                                drawMarker(layer, m.x, m.y, input, zoneInputs);
-                            });
+                            totalCount += existing.length;
                         } catch (e) {}
                     }
                 });
@@ -145,12 +166,12 @@ $currentDiagram = $diagramConfig[$diagramType];
                     targetInput.value = JSON.stringify(arr);
 
                     totalCount++;
-                    drawMarker(layer, xPct, yPct, targetInput, zoneInputs);
+                    drawMarker(layer, xPct, yPct, targetInput);
                     refreshBadge();
                 });
             });
 
-            function drawMarker(layer, xPct, yPct, targetInput, zoneInputs) {
+            function drawMarker(layer, xPct, yPct, targetInput) {
                 var dot = document.createElement('div');
                 dot.className = 'body-diagram-marker-dot';
                 dot.style.left = xPct + '%';
