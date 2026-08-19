@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $pdo->prepare('UPDATE ss_users SET last_login_at = NOW() WHERE id = ?')->execute([$user['id']]);
 
-                // ★ 핵심: 대표로 로그인하는 순간, 남아있던 직원 세션도 반드시 제거 (양방향 대칭 보호)
+                // ⚠ 핵심 수정: 이전에 남아있을 수 있는 직원(staff) 세션 값을 반드시 제거
                 unset($_SESSION['staff_id'], $_SESSION['staff_store_id'], $_SESSION['staff_name']);
 
                 session_regenerate_id(true);

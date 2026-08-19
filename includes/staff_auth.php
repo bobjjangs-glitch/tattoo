@@ -60,10 +60,22 @@ function logAccess(PDO $pdo, string $storeId, array $actor, string $action, ?str
     }
 }
 
-/** 오너 또는 admin 역할 직원만 허용. 일반 staff는 차단. */
-function requireAdminRole(array $actor): void {
+/**
+ * 오너 또는 admin 역할 직원만 허용. 일반 staff는 스타일이 적용된 안내 화면을 보여주고 종료.
+ */
+function requireAdminRole(array $actor, string $storeId = ''): void {
     if ($actor['role'] !== 'owner' && $actor['role'] !== 'admin') {
         http_response_code(403);
-        die('이 기능은 매장 대표 또는 관리자 권한 직원만 사용할 수 있습니다.');
+        $backUrl = $storeId !== '' ? 'store.php?id=' . urlencode($storeId) : 'javascript:history.back()';
+        echo '<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>접근 권한 없음 - SalonForm</title>
+        <link rel="stylesheet" href="/tattoo/assets/css/common.css"></head><body>
+        <div class="auth-page"><div class="auth-card">
+        <div class="auth-logo">SalonForm</div>
+        <p class="auth-subtitle">이 기능은 매장 대표 또는<br>관리자 권한 직원만 사용할 수 있습니다.</p>
+        <div class="auth-links"><a href="' . htmlspecialchars($backUrl) . '" class="btn-primary" style="display:inline-block;text-decoration:none;">고객 관리로 돌아가기</a></div>
+        </div></div></body></html>';
+        exit;
     }
 }
