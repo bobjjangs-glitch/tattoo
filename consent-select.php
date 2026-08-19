@@ -2,11 +2,12 @@
 /**
  * consent-select.php
  * 고객관리 > 동의서 작성 > 템플릿 선택 화면
+ * (대표 + 직원 모두 접근 가능해야 하므로 staff_auth의 requireStoreAccess 사용)
  */
 require_once __DIR__ . '/includes/session.php';
+require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
 
-$user = requireLogin();
 $pdo  = getDbConnection();
 
 $storeId    = $_GET['id'] ?? '';
@@ -16,6 +17,9 @@ if ($storeId === '' || $customerId === '') {
     http_response_code(400);
     die('필수 파라미터(id, customer_id)가 없습니다.');
 }
+
+// 대표든 직원(staff/admin)이든 이 매장에 대한 접근 권한만 있으면 통과
+$actor = requireStoreAccess($pdo, $storeId);
 
 // 매장 확인
 $stmt = $pdo->prepare("SELECT * FROM ss_stores WHERE id = ? LIMIT 1");
@@ -44,6 +48,8 @@ $stmt = $pdo->prepare("
 ");
 $stmt->execute([$storeId]);
 $templates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+logAccess($pdo, $storeId, $actor, 'view_consent_select', 'customer', $customerId);
 
 function industryBadge($industry) {
     $map = [

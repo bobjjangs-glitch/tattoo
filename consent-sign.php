@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/includes/session.php';
+require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
 
 $pdo = getDbConnection();
@@ -23,6 +24,14 @@ if (!function_exists('generateUuidV4')) {
     }
 }
 
+// ── 접근 권한 체크: 이 파라미터 이름은 "storeAppointmentId"지만 실제로는 매장 ID(storeId)임 ──
+$storeAppointmentId = $_GET['id'] ?? ($_POST['id'] ?? '');
+if ($storeAppointmentId === '') {
+    http_response_code(400);
+    exit('필수 파라미터(id)가 없습니다.');
+}
+$actor = requireStoreAccess($pdo, $storeAppointmentId);
+
 /**
  * checklist_items 컬럼에 저장된 JSON을 정규화해서 title/note/required_all/items 형태로 통일한다.
  * consent-edit.php가 저장하는 {"groups":[{group_title, group_note, required_all, items}]} 구조와
@@ -35,7 +44,6 @@ function normalizeChecklistGroupsForSign($rawJson) {
         return [];
     }
 
-    // {"groups": [...]} 껍데기가 있으면 벗겨내고, 없으면 최상위 배열 자체를 그룹 목록으로 본다
     $rawGroups = (isset($decoded['groups']) && is_array($decoded['groups']))
         ? $decoded['groups']
         : $decoded;
@@ -59,7 +67,6 @@ $diagramConfig = require __DIR__ . '/includes/diagram_config.php';
 
 $templateId = $_GET['template_id'] ?? ($_POST['template_id'] ?? '');
 $customerId = $_GET['customer_id'] ?? ($_POST['customer_id'] ?? '');
-$storeAppointmentId = $_GET['id'] ?? ($_POST['id'] ?? '');
 
 if ($templateId === '' || $customerId === '') {
     http_response_code(400);
@@ -74,19 +81,24 @@ if (!$template) {
     exit('동의서 템플릿을 찾을 수 없습니다.');
 }
 
+// 템플릿이 실제로 이 매장 소속인지 추가 확인 (다른 매장 템플릿 ID로 접근 시도 방지)
+if ($template['store_id'] !== $storeAppointmentId) {
+    http_response_code(403);
+    exit('해당 매장의 동의서 템플릿이 아닙니다.');
+}
+
 $stmt = $pdo->prepare('SELECT * FROM ss_stores WHERE id = ? LIMIT 1');
 $stmt->execute([$template['store_id']]);
 $store = $stmt->fetch(PDO::FETCH_ASSOC);
 
-$stmt = $pdo->prepare('SELECT * FROM ss_customers WHERE id = ? LIMIT 1');
-$stmt->execute([$customerId]);
+$stmt = $pdo->prepare('SELECT * FROM ss_customers WHERE id = ? AND store_id = ? LIMIT 1');
+$stmt->execute([$customerId, $template['store_id']]);
 $customer = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$customer) {
     http_response_code(404);
     exit('고객 정보를 찾을 수 없습니다.');
 }
 
-// ── 여기가 핵심 수정 지점: 정규화 함수를 반드시 통과시킨다 ──
 $checklistGroups = normalizeChecklistGroupsForSign($template['checklist_items'] ?? null);
 
 $diagramType = $template['diagram_type'] ?? 'none';
@@ -99,7 +111,6 @@ $errors = [];
 // ===== 제출 처리 =====
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'submit') {
 
-    // 필수 그룹 체크 검증
     foreach ($checklistGroups as $gIndex => $group) {
         if (!empty($group['required_all'])) {
             $checkedItems = $_POST["checklist_g{$gIndex}"] ?? [];
@@ -110,19 +121,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'submi
         }
     }
 
-    // 최종 동의 검증
     if (!empty($template['final_agree_text']) && empty($_POST['final_agree'])) {
         $errors[] = '최종 동의 항목에 체크해 주세요.';
     }
 
-    // 서명 검증
     $signatureData = $_POST['signature_data'] ?? '';
     if ($signatureData === '' || strpos($signatureData, 'data:image/png;base64,') !== 0) {
         $errors[] = '서명을 입력해 주세요.';
     }
 
     if (empty($errors)) {
-        // 서명 이미지 저장
         $base64 = str_replace('data:image/png;base64,', '', $signatureData);
         $binaryData = base64_decode($base64);
         $signatureUuid = generateUuidV4();
@@ -134,14 +142,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'submi
         file_put_contents($signaturePath, $binaryData);
         $signatureUrl = '/tattoo/uploads/signatures/' . $signatureUuid . '.png';
 
-        // 체크리스트 응답 수집
         $checklistAnswers = [];
         foreach ($checklistGroups as $gIndex => $group) {
             $checklistAnswers[$gIndex] = $_POST["checklist_g{$gIndex}"] ?? [];
         }
         $checklistAnswers['_final_agree'] = !empty($_POST['final_agree']);
 
-        // 시술 부위 마커 수집 (body_markers_p{n}_z{n} 패턴)
         $bodyMarkers = [];
         $totalMarkerCount = 0;
         foreach ($_POST as $key => $value) {
@@ -170,11 +176,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'submi
                 $template['store_id'],
                 $customerId,
                 $templateId,
-                $_SESSION['staff_id'] ?? null,
+                $actor['actor_type'] === 'staff' ? $actor['actor_id'] : null,
                 json_encode($template, JSON_UNESCAPED_UNICODE),
                 json_encode($checklistAnswers, JSON_UNESCAPED_UNICODE),
                 $signatureUrl,
             ]);
+
+            logAccess($pdo, $template['store_id'], $actor, 'sign_consent', 'customer', $customerId, $template['title'] ?? '');
 
             header('Location: /tattoo/store.php?id=' . urlencode($store['id']) . '&signed=1');
             exit;
@@ -260,7 +268,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'submi
 </div>
 
 <script>
-// ===== 서명 패드 =====
 const canvas = document.getElementById('signature-pad');
 const ctx = canvas.getContext('2d');
 let isDrawing = false;
@@ -317,7 +324,6 @@ document.getElementById('clearSignatureBtn').addEventListener('click', function 
     validateForm();
 });
 
-// ===== 필수 체크박스/서명 검증 =====
 function validateForm() {
     const finalAgree = document.getElementById('finalAgreeCheckbox');
     const finalAgreeOk = !finalAgree || finalAgree.checked;
