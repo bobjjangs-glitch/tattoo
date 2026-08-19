@@ -14,6 +14,7 @@ if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접�
 $pwError = '';
 $pwSuccess = '';
 $certError = '';
+$certSuccess = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'change_password') {
     $currentPw = $_POST['current_password'] ?? '';
@@ -49,11 +50,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
         if (!is_dir($uploadDir) || !is_writable($uploadDir)) {
             $certError = '업로드 폴더 권한이 없습니다.';
         } else {
+            if (!empty($store['business_cert_path'])) {
+                $oldPath = __DIR__ . '/' . $store['business_cert_path'];
+                if (is_file($oldPath)) { @unlink($oldPath); }
+            }
             $newName = 'cert_' . time() . '.' . $ext;
             if (move_uploaded_file($file['tmp_name'], $uploadDir . $newName)) {
+                $newRelPath = 'uploads/business-certs/' . $storeId . '/' . $newName;
                 $stmt = $pdo->prepare('UPDATE ss_stores SET business_cert_path = ? WHERE id = ?');
-                $stmt->execute(['uploads/business-certs/' . $storeId . '/' . $newName, $storeId]);
-                $store['business_cert_path'] = 'uploads/business-certs/' . $storeId . '/' . $newName;
+                $stmt->execute([$newRelPath, $storeId]);
+                $store['business_cert_path'] = $newRelPath;
+                $certSuccess = '사업자등록증이 등록되었습니다.';
             } else {
                 $certError = '파일 저장에 실패했습니다.';
             }
@@ -72,6 +79,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         exit;
     }
 }
+
+$hasCert = !empty($store['business_cert_path']);
+$certExt = $hasCert ? strtolower(pathinfo($store['business_cert_path'], PATHINFO_EXTENSION)) : '';
+$certIsImage = in_array($certExt, ['jpg', 'jpeg', 'png'], true);
 
 $activePage = 'settings';
 $pageTitle = htmlspecialchars($store['name']) . ' 매장 설정';
@@ -100,20 +111,37 @@ require_once __DIR__ . '/includes/layout_head.php';
 
       <div class="settings-section">
         <h2>사업자등록증</h2>
-        <p class="section-desc">사업자등록증을 관리할 수 있습니다.</p>
+        <p class="section-desc">사업자등록증 이미지 또는 PDF 파일을 등록해 관리할 수 있습니다.</p>
         <?php if ($certError): ?><div class="alert-error"><?php echo htmlspecialchars($certError); ?></div><?php endif; ?>
-        <?php if (!empty($store['business_cert_path'])): ?>
-          <p style="margin-bottom:14px;"><a href="<?php echo htmlspecialchars($store['business_cert_path']); ?>" target="_blank" class="btn-secondary" style="display:inline-block;">📄 등록된 파일 보기</a></p>
-        <?php endif; ?>
-        <form method="post" enctype="multipart/form-data">
-          <input type="hidden" name="action" value="upload_cert">
-          <label class="upload-box" for="certInput">
-            <div class="upload-icon">📤</div>
-            <div class="upload-text">클릭하거나 파일을 여기에 놓으세요</div>
-            <div class="upload-sub">이미지 또는 PDF (최대 10MB)</div>
+        <?php if ($certSuccess): ?><div class="alert-success"><?php echo htmlspecialchars($certSuccess); ?></div><?php endif; ?>
+
+        <?php if ($hasCert): ?>
+          <div class="cert-card">
+            <div class="cert-card-icon"><?php echo $certIsImage ? '🖼️' : '📄'; ?></div>
+            <div class="cert-card-info">
+              <span class="cert-status-badge">등록완료</span>
+              <span class="cert-card-filename"><?php echo htmlspecialchars(basename($store['business_cert_path'])); ?></span>
+            </div>
+            <div class="cert-card-actions">
+              <a href="<?php echo htmlspecialchars($store['business_cert_path']); ?>" target="_blank" class="btn-mini">파일 보기</a>
+              <label class="btn-mini" for="certInput" style="cursor:pointer;">다시 업로드</label>
+            </div>
+          </div>
+          <form method="post" enctype="multipart/form-data" style="display:none;">
+            <input type="hidden" name="action" value="upload_cert">
             <input type="file" name="cert" id="certInput" accept=".jpg,.jpeg,.png,.pdf" onchange="this.form.submit()">
-          </label>
-        </form>
+          </form>
+        <?php else: ?>
+          <form method="post" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="upload_cert">
+            <label class="upload-box" for="certInput">
+              <div class="upload-icon" aria-hidden="true">📤</div>
+              <div class="upload-text">클릭하거나 파일을 여기에 놓으세요</div>
+              <div class="upload-sub">이미지 또는 PDF (최대 10MB)</div>
+              <input type="file" name="cert" id="certInput" accept=".jpg,.jpeg,.png,.pdf" onchange="this.form.submit()">
+            </label>
+          </form>
+        <?php endif; ?>
       </div>
 
       <div class="settings-section danger-zone">

@@ -23,6 +23,38 @@ if (!function_exists('generateUuidV4')) {
     }
 }
 
+/**
+ * checklist_items 컬럼에 저장된 JSON을 정규화해서 title/note/required_all/items 형태로 통일한다.
+ * consent-edit.php가 저장하는 {"groups":[{group_title, group_note, required_all, items}]} 구조와
+ * 예전 방식(껍데기 없는 단순 배열, title/note 키) 구조를 모두 흡수한다.
+ * 이 함수를 거치지 않고 $template['checklist_items']를 직접 json_decode 하면 안 된다.
+ */
+function normalizeChecklistGroupsForSign($rawJson) {
+    $decoded = json_decode($rawJson ?? '[]', true);
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    // {"groups": [...]} 껍데기가 있으면 벗겨내고, 없으면 최상위 배열 자체를 그룹 목록으로 본다
+    $rawGroups = (isset($decoded['groups']) && is_array($decoded['groups']))
+        ? $decoded['groups']
+        : $decoded;
+
+    $normalized = [];
+    foreach ($rawGroups as $g) {
+        if (!is_array($g)) {
+            continue;
+        }
+        $normalized[] = [
+            'title'        => $g['title'] ?? $g['group_title'] ?? '',
+            'note'         => $g['note'] ?? $g['group_note'] ?? '',
+            'required_all' => !empty($g['required_all']),
+            'items'        => is_array($g['items'] ?? null) ? $g['items'] : [],
+        ];
+    }
+    return $normalized;
+}
+
 $diagramConfig = require __DIR__ . '/includes/diagram_config.php';
 
 $templateId = $_GET['template_id'] ?? ($_POST['template_id'] ?? '');
@@ -54,7 +86,9 @@ if (!$customer) {
     exit('고객 정보를 찾을 수 없습니다.');
 }
 
-$checklistGroups = json_decode($template['checklist_items'] ?? '[]', true) ?: [];
+// ── 여기가 핵심 수정 지점: 정규화 함수를 반드시 통과시킨다 ──
+$checklistGroups = normalizeChecklistGroupsForSign($template['checklist_items'] ?? null);
+
 $diagramType = $template['diagram_type'] ?? 'none';
 $maxMarkers = 6;
 $readOnly = false;
@@ -161,7 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'submi
 <div class="consent-modal-page">
     <div class="consent-modal-topbar">
         <h2 class="consent-modal-title"><?= htmlspecialchars($template['title']) ?></h2>
-        <a href="javascript:history.back()" class="consent-modal-close">×</a>
+        <a href="javascript:history.back()" class="consent-modal-close">&times;</a>
     </div>
 
     <div class="consent-modal-body">
@@ -285,12 +319,6 @@ document.getElementById('clearSignatureBtn').addEventListener('click', function 
 
 // ===== 필수 체크박스/서명 검증 =====
 function validateForm() {
-    let allRequiredChecked = true;
-    document.querySelectorAll('.consent-section').forEach(function (section) {
-        // required_all 그룹은 PHP에서 렌더링할 때 data 속성으로 표시하는 게 이상적이나,
-        // 여기서는 서버 측 최종 검증에 의존하고 클라이언트는 최소 검증만 수행한다.
-    });
-
     const finalAgree = document.getElementById('finalAgreeCheckbox');
     const finalAgreeOk = !finalAgree || finalAgree.checked;
 
