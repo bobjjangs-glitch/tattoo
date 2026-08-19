@@ -1,11 +1,11 @@
 <?php
 $activePage = 'consent';
 require_once __DIR__ . '/includes/session.php';
+require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
 require_once __DIR__ . '/api/utils/Uuid.php';
 require_once __DIR__ . '/includes/diagram_helper.php';
 
-$user = requireLogin();
 $pdo = getDbConnection();
 
 $diagramConfig = include __DIR__ . '/includes/diagram_config.php';
@@ -20,13 +20,18 @@ if ($storeId === '') {
     exit;
 }
 
-$stmt = $pdo->prepare('SELECT id, name, industry FROM ss_stores WHERE id = ? AND owner_id = ?');
-$stmt->execute([$storeId, $user['id']]);
+$actor = requireStoreAccess($pdo, $storeId);
+requireAdminRole($actor); // 동의서 양식 관리는 대표 또는 관리자 권한 직원만 허용
+
+$stmt = $pdo->prepare('SELECT id, name, industry FROM ss_stores WHERE id = ?');
+$stmt->execute([$storeId]);
 $store = $stmt->fetch();
 if (!$store) {
     http_response_code(404);
     die('매장을 찾을 수 없거나 접근 권한이 없습니다.');
 }
+
+logAccess($pdo, $storeId, $actor, 'view_consent_templates');
 
 $errorMessage = '';
 
@@ -90,6 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $upd->execute([$title, $industry, $safeContent, $checklistJson,
                             $agreementJson, $refundPolicy ?: null, $diagramType, $templateId]);
                     }
+                    logAccess($pdo, $storeId, $actor, 'update_consent_template', 'consent_template', $templateId, $title);
                 } else {
                     $newId = Uuid::v4();
                     $ins = $pdo->prepare('INSERT INTO ss_consent_templates
@@ -98,6 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())');
                     $ins->execute([$newId, $storeId, $industry, $title, $safeContent, $checklistJson,
                         $agreementJson, $refundPolicy ?: null, $diagramType]);
+                    logAccess($pdo, $storeId, $actor, 'create_consent_template', 'consent_template', $newId, $title);
                 }
                 header('Location: consent.php?id=' . urlencode($storeId) . '&saved=1');
                 exit;
@@ -114,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $chk->execute([$templateId, $storeId]);
         if ($chk->fetch()) {
             $pdo->prepare('UPDATE ss_consent_templates SET is_active = NOT is_active WHERE id = ?')->execute([$templateId]);
+            logAccess($pdo, $storeId, $actor, 'toggle_consent_template', 'consent_template', $templateId);
         }
         header('Location: consent.php?id=' . urlencode($storeId));
         exit;
@@ -133,6 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (file_exists($filePath)) { unlink($filePath); }
                 }
                 $pdo->prepare('DELETE FROM ss_consent_templates WHERE id = ?')->execute([$templateId]);
+                logAccess($pdo, $storeId, $actor, 'delete_consent_template', 'consent_template', $templateId);
             }
         }
         if ($errorMessage === '') {
@@ -166,6 +175,7 @@ function consentBadgeClass(string $industry): string {
     return $map[$industry] ?? '';
 }
 
+$actorRole = $actor['role'];
 $pageTitle = htmlspecialchars($store['name']) . ' 동의서 관리';
 require_once __DIR__ . '/includes/layout_head.php';
 ?>
@@ -174,7 +184,7 @@ require_once __DIR__ . '/includes/layout_head.php';
 
     <main class="main-content">
         <header class="dashboard-header">
-            <span><?php echo htmlspecialchars($user['name'] ?? ''); ?>님</span>
+            <span><?php echo htmlspecialchars($actor['actor_name'] ?? ''); ?>님</span>
         </header>
 
         <div class="page-content">
@@ -325,7 +335,6 @@ function escapeHtml(str) {
     return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-/* ---------- 리치 에디터 ---------- */
 function ex(cmd, val) {
     document.execCommand(cmd, false, val || null);
     document.getElementById('contentEditor').focus();
@@ -336,7 +345,6 @@ function syncContent() {
     return true;
 }
 
-/* ---------- 체크리스트 그룹 편집기 ---------- */
 function renderChecklistEditor() {
     const wrap = document.getElementById('checklistGroupEditor');
     wrap.innerHTML = '';
@@ -382,7 +390,6 @@ function collectChecklistGroups() {
         .map(g => ({ group_title: g.group_title, group_note: g.group_note, required_all: !!g.required_all, items: g.items.filter(it => it.trim() !== '') }));
 }
 
-/* ---------- 도해 타입 선택 카드 ---------- */
 function renderDiagramSelector(selectedKey) {
     const wrap = document.getElementById('diagramTypeSelector');
     wrap.innerHTML = '';
@@ -432,7 +439,6 @@ function buildDiagramHtml(panels) {
     return html;
 }
 
-/* ---------- 모달 열기/닫기 ---------- */
 function openCreateModal() {
     document.getElementById('modalTitle').textContent = '새 동의서 작성';
     document.getElementById('formTemplateId').value = '';

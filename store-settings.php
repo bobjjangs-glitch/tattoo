@@ -206,7 +206,7 @@ require_once __DIR__ . '/includes/layout_head.php';
 
       <div class="settings-section">
         <h2>직원 관리</h2>
-        <p class="section-desc">직원 계정을 추가하면 대표자 비밀번호 없이도 고객 관리 화면에 로그인할 수 있습니다. "관리자" 권한은 매장 설정까지 접근 가능하니 신중히 부여해주세요.</p>
+        <p class="section-desc">직원 계정을 추가하면 대표자 비밀번호 없이도 고객 관리 화면에 로그인할 수 있습니다. "관리자" 권한은 동의서 관리까지 접근 가능하니 신중히 부여해주세요. 각 직원의 "링크 복사" 버튼을 눌러 로그인 주소를 카카오톡이나 문자로 전달해주세요.</p>
         <?php if ($staffError): ?><div class="alert-error"><?php echo htmlspecialchars($staffError); ?></div><?php endif; ?>
         <?php if ($staffSuccess): ?><div class="alert-success"><?php echo htmlspecialchars($staffSuccess); ?></div><?php endif; ?>
 
@@ -214,14 +214,18 @@ require_once __DIR__ . '/includes/layout_head.php';
           <div class="empty-state" style="padding:30px 20px;">등록된 직원이 없습니다.</div>
         <?php else: ?>
           <table class="data-table" style="margin-bottom:18px;">
-            <thead><tr><th>이름</th><th>이메일</th><th>권한</th><th>상태</th><th>관리</th></tr></thead>
+            <thead><tr><th>이름</th><th>이메일</th><th>권한</th><th>상태</th><th>로그인 링크</th><th>관리</th></tr></thead>
             <tbody>
               <?php foreach ($staffList as $s): ?>
+                <?php $staffLoginUrl = 'https://' . $_SERVER['HTTP_HOST'] . '/tattoo/staff-login.php?store_id=' . urlencode($storeId); ?>
                 <tr>
                   <td><?php echo htmlspecialchars($s['name']); ?></td>
                   <td><?php echo htmlspecialchars($s['email']); ?></td>
                   <td><?php echo $s['role'] === 'admin' ? '관리자' : '일반 직원'; ?></td>
                   <td><span class="badge <?php echo $s['is_active'] ? 'badge-active' : 'badge-inactive'; ?>"><?php echo $s['is_active'] ? '활성' : '비활성'; ?></span></td>
+                  <td>
+                    <button type="button" class="btn-mini" onclick="copyStaffLink('<?php echo htmlspecialchars($staffLoginUrl, ENT_QUOTES); ?>', this)">링크 복사</button>
+                  </td>
                   <td>
                     <form method="post" style="display:inline;">
                       <input type="hidden" name="action" value="toggle_staff">
@@ -244,7 +248,7 @@ require_once __DIR__ . '/includes/layout_head.php';
             <label>권한 *</label>
             <select name="staff_role">
               <option value="staff">일반 직원 (고객 관리만 가능)</option>
-              <option value="admin">관리자 (매장 설정까지 가능)</option>
+              <option value="admin">관리자 (동의서 관리까지 가능)</option>
             </select>
           </div>
           <button type="submit" class="btn-primary" style="width:auto;padding:12px 28px;">직원 추가</button>
@@ -296,4 +300,15 @@ require_once __DIR__ . '/includes/layout_head.php';
     </form>
   </div>
 </div>
+
+<script>
+function copyStaffLink(url, btn) {
+    navigator.clipboard.writeText(url).then(function () {
+        const original = btn.textContent;
+        btn.textContent = '복사됨!';
+        setTimeout(function () { btn.textContent = original; }, 1500);
+    });
+}
+</script>
+
 <?php require_once __DIR__ . '/includes/layout_foot.php'; ?>

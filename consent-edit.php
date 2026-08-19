@@ -1,6 +1,7 @@
 <?php
 // consent-edit.php
 require_once __DIR__ . '/includes/session.php';
+require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
 require_once __DIR__ . '/includes/diagram_helper.php';
 
@@ -15,8 +16,6 @@ if (file_exists(__DIR__ . '/api/utils/Uuid.php')) {
     }
 }
 
-$user = requireLogin();
-
 $diagramConfig = include __DIR__ . '/includes/diagram_config.php';
 if (!is_array($diagramConfig) || empty($diagramConfig)) {
     http_response_code(500);
@@ -25,8 +24,6 @@ if (!is_array($diagramConfig) || empty($diagramConfig)) {
 
 $db = getDbConnection();
 
-// ── 파라미터 이름을 나머지 파일들(consent.php, consent-view.php)과 통일 ──
-// id = 매장(store) ID, template_id = 동의서 템플릿 ID
 $storeId    = $_GET['id'] ?? ($_POST['store_id'] ?? null);
 $templateId = $_GET['template_id'] ?? ($_POST['template_id'] ?? null);
 
@@ -35,14 +32,17 @@ if (!$storeId) {
     die('store_id(id 파라미터)가 필요합니다.');
 }
 
-// ── 매장 소유권 검증: 로그인한 사용자가 이 매장의 주인이 아니면 접근 차단 ──
-$storeCheckStmt = $db->prepare('SELECT id, name FROM ss_stores WHERE id = ? AND owner_id = ?');
-$storeCheckStmt->execute([$storeId, $user['id']]);
+$actor = requireStoreAccess($db, $storeId);
+requireAdminRole($actor); // 동의서 양식 수정은 대표 또는 관리자 권한 직원만 허용
+
+$storeCheckStmt = $db->prepare('SELECT id, name FROM ss_stores WHERE id = ?');
+$storeCheckStmt->execute([$storeId]);
 $store = $storeCheckStmt->fetch(PDO::FETCH_ASSOC);
 if (!$store) {
     http_response_code(404);
     die('매장을 찾을 수 없거나 접근 권한이 없습니다.');
 }
+
 
 $errorMessage = '';
 $postValues = [

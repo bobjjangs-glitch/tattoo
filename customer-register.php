@@ -1,16 +1,23 @@
 <?php
 require_once __DIR__ . '/includes/session.php';
+require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
 require_once __DIR__ . '/api/utils/Uuid.php';
 require_once __DIR__ . '/api/utils/Crypto.php';
 require_once __DIR__ . '/api/utils/Mask.php';
 
-$user = requireLogin();
 $pdo = getDbConnection();
 
 $storeId = $_GET['id'] ?? '';
-$stmt = $pdo->prepare('SELECT id, name FROM ss_stores WHERE id = ? AND owner_id = ?');
-$stmt->execute([$storeId, $user['id']]);
+if ($storeId === '') {
+    header('Location: dashboard.php');
+    exit;
+}
+
+$actor = requireStoreAccess($pdo, $storeId);
+
+$stmt = $pdo->prepare('SELECT id, name FROM ss_stores WHERE id = ?');
+$stmt->execute([$storeId]);
 $store = $stmt->fetch();
 if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접근 권한이 없습니다.'); }
 
@@ -42,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  VALUES (?, ?, ?, ?, ?, ?, ?, NOW())'
             );
             $stmt->execute([$id, $storeId, $name, Crypto::encrypt($phone), Mask::phone($phone), $gender, $memo]);
+            logAccess($pdo, $storeId, $actor, 'register_customer', 'customer', $id, $name);
             header('Location: store.php?id=' . urlencode($storeId) . '&created=1');
             exit;
         } catch (Throwable $e) {
@@ -51,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$actorRole = $actor['role'];
 $activePage = 'customers';
 $pageTitle = '고객 등록';
 require_once __DIR__ . '/includes/layout_head.php';
@@ -59,7 +68,7 @@ require_once __DIR__ . '/includes/layout_head.php';
   <?php require __DIR__ . '/includes/store_sidebar.php'; ?>
   <main class="main-content">
     <header class="dashboard-header">
-      <span><?php echo htmlspecialchars($user['name'] ?? ''); ?>님</span>
+      <span><?php echo htmlspecialchars($actor['actor_name'] ?? ''); ?>님</span>
     </header>
     <div class="page-content">
       <div class="page-header"><h1 class="page-title">고객 등록</h1></div>

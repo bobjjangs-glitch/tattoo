@@ -1,4 +1,6 @@
 <?php
+ob_start();
+
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
 
@@ -7,26 +9,36 @@ $pdo = getDbConnection();
 $storeId = $_GET['store_id'] ?? ($_POST['store_id'] ?? '');
 $loginError = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// store_id가 아예 없는 상태로 들어온 경우, 로그인 시도 전에 바로 명확히 안내
+if ($storeId === '') {
+    $loginError = '잘못된 접속 경로입니다. 매장 대표에게 전달받은 직원 로그인 링크로 다시 접속해주세요.';
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $storeId !== '') {
     $storeId = $_POST['store_id'] ?? '';
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    if ($storeId === '' || $email === '' || $password === '') {
+    if ($storeId === '') {
+        $loginError = '잘못된 접속 경로입니다. 매장 대표에게 전달받은 직원 로그인 링크로 다시 접속해주세요.';
+    } elseif ($email === '' || $password === '') {
         $loginError = '이메일과 비밀번호를 모두 입력해주세요.';
     } else {
-        $stmt = $pdo->prepare('SELECT id, name, password_hash, role, is_active FROM ss_store_staff WHERE store_id = ? AND email = ?');
+        $stmt = $pdo->prepare('SELECT id, name, password_hash, role, is_active FROM ss_store_staff WHERE store_id = ? AND LOWER(email) = LOWER(?)');
         $stmt->execute([$storeId, $email]);
         $staff = $stmt->fetch();
 
-        if (!$staff || !password_verify($password, $staff['password_hash'])) {
-            $loginError = '이메일 또는 비밀번호가 일치하지 않습니다.';
+        if (!$staff) {
+            $loginError = '해당 매장에 등록된 이메일이 아닙니다.';
+        } elseif (!password_verify($password, $staff['password_hash'])) {
+            $loginError = '비밀번호가 일치하지 않습니다.';
         } elseif (!$staff['is_active']) {
             $loginError = '비활성화된 계정입니다. 매장 대표에게 문의해주세요.';
         } else {
             $_SESSION['staff_id'] = $staff['id'];
             $_SESSION['staff_store_id'] = $storeId;
             $_SESSION['staff_name'] = $staff['name'];
+            ob_end_clean();
             header('Location: store.php?id=' . urlencode($storeId));
             exit;
         }
@@ -51,11 +63,13 @@ $pageTitle = '직원 로그인';
     <?php if ($loginError): ?>
       <div class="alert-error"><?php echo htmlspecialchars($loginError); ?></div>
     <?php endif; ?>
+    <?php if ($storeId !== ''): ?>
     <form method="POST">
       <input type="hidden" name="store_id" value="<?php echo htmlspecialchars($storeId); ?>">
       <div class="form-group">
         <label>이메일</label>
-        <input type="email" name="email" required autocomplete="email">
+        <input type="email" name="email" required autocomplete="email"
+               value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>">
       </div>
       <div class="form-group">
         <label>비밀번호</label>
@@ -63,6 +77,7 @@ $pageTitle = '직원 로그인';
       </div>
       <button type="submit" class="btn-primary">로그인</button>
     </form>
+    <?php endif; ?>
     <div class="auth-links">매장 대표이신가요? <a href="index.php">대표자 로그인</a></div>
   </div>
 </div>
