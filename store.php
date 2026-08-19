@@ -12,6 +12,8 @@ if ($storeId === '') {
 }
 
 $actor = requireStoreAccess($pdo, $storeId);
+$actorRole = $actor['role'];
+$canDelete = in_array($actorRole, ['owner', 'admin'], true); // 삭제는 되돌릴 수 없는 작업이라 대표/관리자만 허용
 
 $stmt = $pdo->prepare('SELECT id, name, industry FROM ss_stores WHERE id = ?');
 $stmt->execute([$storeId]);
@@ -24,7 +26,7 @@ if (!$store) {
 logAccess($pdo, $storeId, $actor, 'view_customer_list');
 
 $keyword = trim($_GET['keyword'] ?? '');
-$sql = 'SELECT id, name, phone_masked, gender, created_at FROM ss_customers WHERE store_id = ?';
+$sql = 'SELECT id, name, phone_masked, gender, memo, created_at FROM ss_customers WHERE store_id = ?';
 $params = [$storeId];
 if ($keyword !== '') {
     $sql .= ' AND (name LIKE ? OR phone_masked LIKE ?)';
@@ -36,8 +38,7 @@ $listStmt = $pdo->prepare($sql);
 $listStmt->execute($params);
 $customers = $listStmt->fetchAll();
 
-// ── 각 고객의 서명 완료 동의서 "건수"를 조회 (최근 1건만이 아니라 전체 건수) ──
-// 여러 번 서명한 고객도 개수가 그대로 보이도록, 최근 것만 남기고 가리지 않는다.
+// ── 각 고객의 서명 완료 동의서 "건수"를 조회 ──
 $docCountByCustomer = [];
 if (!empty($customers)) {
     $customerIds = array_column($customers, 'id');
@@ -58,7 +59,21 @@ if (!empty($customers)) {
     }
 }
 
-$actorRole = $actor['role'];
+/** 성별 코드를 화면 표시용 텍스트로 변환 */
+function genderLabel(?string $g): string {
+    if ($g === 'male') return '남';
+    if ($g === 'female') return '여';
+    return '-';
+}
+
+/** 메모(HTML)에서 태그를 제거하고 목록에 보일 짧은 미리보기 텍스트로 변환 */
+function memoPreview(?string $memoHtml): string {
+    if ($memoHtml === null || trim($memoHtml) === '') return '-';
+    $plain = trim(preg_replace('/\s+/', ' ', strip_tags($memoHtml)));
+    if ($plain === '') return '-';
+    return mb_strlen($plain) > 20 ? mb_substr($plain, 0, 20) . '…' : $plain;
+}
+
 $pageTitle = htmlspecialchars($store['name']) . ' 고객 목록';
 require_once __DIR__ . '/includes/layout_head.php';
 ?>
@@ -79,8 +94,17 @@ require_once __DIR__ . '/includes/layout_head.php';
             <?php if (isset($_GET['created'])): ?>
                 <div class="alert-success">고객이 등록되었습니다.</div>
             <?php endif; ?>
+            <?php if (isset($_GET['updated'])): ?>
+                <div class="alert-success">고객 정보가 수정되었습니다.</div>
+            <?php endif; ?>
+            <?php if (isset($_GET['deleted'])): ?>
+                <div class="alert-success">고객이 삭제되었습니다.</div>
+            <?php endif; ?>
             <?php if (isset($_GET['signed'])): ?>
                 <div class="alert-success">동의서 서명이 완료되었습니다.</div>
+            <?php endif; ?>
+            <?php if (isset($_GET['delete_error'])): ?>
+                <div class="alert-error">삭제 권한이 없거나 처리 중 오류가 발생했습니다.</div>
             <?php endif; ?>
 
             <form method="get" class="customer-search-bar">
@@ -94,24 +118,38 @@ require_once __DIR__ . '/includes/layout_head.php';
             <?php else: ?>
                 <table class="data-table">
                     <thead>
-                        <tr><th>이름</th><th>전화번호</th><th>등록일</th><th>관리</th></tr>
+                        <tr>
+                            <th>이름</th>
+                            <th>성별</th>
+                            <th>전화번호</th>
+                            <th>메모</th>
+                            <th>등록일</th>
+                            <th>동의서</th>
+                            <th>관리</th>
+                        </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($customers as $c): ?>
                             <?php $signedCount = $docCountByCustomer[$c['id']] ?? 0; ?>
                             <tr>
-                                <td>
-                                    <?php echo htmlspecialchars($c['name']); ?>
-                                    <?php if ($c['gender'] === 'male'): ?>남<?php elseif ($c['gender'] === 'female'): ?>여<?php endif; ?>
-                                </td>
+                                <td><?php echo htmlspecialchars($c['name']); ?></td>
+                                <td><?php echo genderLabel($c['gender']); ?></td>
                                 <td><?php echo htmlspecialchars($c['phone_masked']); ?></td>
+                                <td style="max-width:180px;color:var(--text-sub);font-size:13px;"><?php echo htmlspecialchars(memoPreview($c['memo'])); ?></td>
                                 <td><?php echo htmlspecialchars(date('Y. n. j.', strtotime($c['created_at']))); ?></td>
                                 <td>
                                     <?php if ($signedCount > 0): ?>
-                                        <a href="consent-history.php?id=<?php echo urlencode($storeId); ?>&customer_id=<?php echo urlencode($c['id']); ?>" class="btn-mini">✔ 서명 내역 보기 (<?php echo $signedCount; ?>건)</a>
-                                        <a href="consent-select.php?id=<?php echo urlencode($storeId); ?>&customer_id=<?php echo urlencode($c['id']); ?>" class="btn-mini" style="margin-left:6px;">+ 새 동의서</a>
+                                        <a href="consent-history.php?id=<?php echo urlencode($storeId); ?>&customer_id=<?php echo urlencode($c['id']); ?>" class="btn-mini">✔ 내역 (<?php echo $signedCount; ?>건)</a>
+                                        <a href="consent-select.php?id=<?php echo urlencode($storeId); ?>&customer_id=<?php echo urlencode($c['id']); ?>" class="btn-mini" style="margin-left:4px;">+ 새 동의서</a>
                                     <?php else: ?>
                                         <a href="consent-select.php?id=<?php echo urlencode($storeId); ?>&customer_id=<?php echo urlencode($c['id']); ?>" class="btn-mini">동의서 작성</a>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <a href="customer-edit.php?id=<?php echo urlencode($storeId); ?>&customer_id=<?php echo urlencode($c['id']); ?>" class="btn-mini">수정</a>
+                                    <?php if ($canDelete): ?>
+                                        <button type="button" class="btn-mini" style="color:var(--danger,#dc3545);margin-left:4px;"
+                                            onclick="openDeleteModal('<?php echo htmlspecialchars($c['id'], ENT_QUOTES); ?>', '<?php echo htmlspecialchars($c['name'], ENT_QUOTES); ?>', <?php echo $signedCount; ?>)">삭제</button>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -123,4 +161,35 @@ require_once __DIR__ . '/includes/layout_head.php';
         </div>
     </main>
 </div>
+
+<?php if ($canDelete): ?>
+<div class="modal-overlay" id="deleteCustomerModal" style="display:none;">
+  <div class="modal-box">
+    <h2 class="modal-title" style="color:var(--danger,#dc3545);">고객을 삭제하시겠습니까?</h2>
+    <p id="deleteCustomerDesc" style="font-size:13px;color:var(--text-sub);margin-bottom:16px;"></p>
+    <form method="post" action="customer-delete.php">
+      <input type="hidden" name="id" value="<?php echo htmlspecialchars($storeId); ?>">
+      <input type="hidden" name="customer_id" id="deleteCustomerId" value="">
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('deleteCustomerModal').style.display='none'">취소</button>
+        <button type="submit" class="btn-danger-outline" style="flex:1;">삭제 확정</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+function openDeleteModal(customerId, name, signedCount) {
+    document.getElementById('deleteCustomerId').value = customerId;
+    var desc = name + '님의 고객 정보가 영구적으로 삭제됩니다.';
+    if (signedCount > 0) {
+        desc += ' 서명 완료된 동의서 ' + signedCount + '건도 함께 삭제되며, 이 작업은 되돌릴 수 없습니다.';
+    } else {
+        desc += ' 이 작업은 되돌릴 수 없습니다.';
+    }
+    document.getElementById('deleteCustomerDesc').textContent = desc;
+    document.getElementById('deleteCustomerModal').style.display = 'flex';
+}
+</script>
+<?php endif; ?>
+
 <?php require_once __DIR__ . '/includes/layout_foot.php'; ?>
