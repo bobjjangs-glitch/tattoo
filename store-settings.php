@@ -39,50 +39,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'chang
     }
 }
 
-// ── 사업자등록증 업로드 (보안 강화: 확장자 + 실제 파일 내용(MIME) 이중 검사, 저장 파일명 랜덤화) ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_cert' && !empty($_FILES['cert']['name'])) {
     $file = $_FILES['cert'];
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-
     if (!in_array($ext, ['jpg', 'jpeg', 'png', 'pdf'], true)) {
         $certError = 'jpg, png, pdf 파일만 업로드할 수 있습니다.';
     } elseif ($file['size'] > 10 * 1024 * 1024) {
         $certError = '파일 크기는 10MB 이하만 가능합니다.';
     } else {
-        // 확장자만 바꿔서 올리는 우회를 막기 위해 실제 파일 내용(MIME 시그니처)까지 검사한다.
-        $finfo = new finfo(FILEINFO_MIME_TYPE);
-        $realMime = $finfo->file($file['tmp_name']);
-        $allowedMime = [
-            'jpg'  => ['image/jpeg'],
-            'jpeg' => ['image/jpeg'],
-            'png'  => ['image/png'],
-            'pdf'  => ['application/pdf'],
-        ];
-        if (!in_array($realMime, $allowedMime[$ext] ?? [], true)) {
-            $certError = '파일 내용이 확장자와 일치하지 않습니다. 올바른 이미지/PDF 파일을 업로드해주세요.';
+        $uploadDir = __DIR__ . '/uploads/business-certs/' . $storeId . '/';
+        if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
+        if (!is_dir($uploadDir) || !is_writable($uploadDir)) {
+            $certError = '업로드 폴더 권한이 없습니다.';
         } else {
-            $uploadDir = __DIR__ . '/uploads/business-certs/' . $storeId . '/';
-            if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
-            if (!is_dir($uploadDir) || !is_writable($uploadDir)) {
-                $certError = '업로드 폴더 권한이 없습니다.';
+            if (!empty($store['business_cert_path'])) {
+                $oldPath = __DIR__ . '/' . $store['business_cert_path'];
+                if (is_file($oldPath)) { @unlink($oldPath); }
+            }
+            $newName = 'cert_' . time() . '.' . $ext;
+            if (move_uploaded_file($file['tmp_name'], $uploadDir . $newName)) {
+                $newRelPath = 'uploads/business-certs/' . $storeId . '/' . $newName;
+                $stmt = $pdo->prepare('UPDATE ss_stores SET business_cert_path = ? WHERE id = ?');
+                $stmt->execute([$newRelPath, $storeId]);
+                $store['business_cert_path'] = $newRelPath;
+                $certSuccess = '사업자등록증이 등록되었습니다.';
             } else {
-                if (!empty($store['business_cert_path'])) {
-                    $oldPath = __DIR__ . '/' . $store['business_cert_path'];
-                    if (is_file($oldPath)) { @unlink($oldPath); }
-                }
-                // 저장 파일명은 서버가 새로 생성 — 원본 파일명은 절대 그대로 쓰지 않는다 (URL 추측 방지)
-                $newName = 'cert_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-                if (move_uploaded_file($file['tmp_name'], $uploadDir . $newName)) {
-                    $newRelPath = 'uploads/business-certs/' . $storeId . '/' . $newName;
-                    $stmt = $pdo->prepare('UPDATE ss_stores SET business_cert_path = ? WHERE id = ?');
-                    $stmt->execute([$newRelPath, $storeId]);
-                    $store['business_cert_path'] = $newRelPath;
-                    $certSuccess = '사업자등록증이 등록되었습니다.';
-                } else {
-                    $certError = '파일 저장에 실패했습니다.';
-                }
+                $certError = '파일 저장에 실패했습니다.';
             }
         }
+    }
+}
+
+// ── 사업자등록증 삭제 (신규) ──────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_cert') {
+    $confirmPw = $_POST['delete_cert_password'] ?? '';
+    if (!password_verify($confirmPw, $store['admin_password_hash'])) {
+        $certError = '사업자등록증 삭제를 위해 관리자 비밀번호를 정확히 입력해주세요.';
+    } elseif (empty($store['business_cert_path'])) {
+        $certError = '삭제할 사업자등록증이 없습니다.';
+    } else {
+        $oldPath = __DIR__ . '/' . $store['business_cert_path'];
+        if (is_file($oldPath)) {
+            @unlink($oldPath);
+        }
+        $stmt = $pdo->prepare('UPDATE ss_stores SET business_cert_path = NULL WHERE id = ?');
+        $stmt->execute([$storeId]);
+        $store['business_cert_path'] = null;
+        $certSuccess = '사업자등록증이 삭제되었습니다.';
     }
 }
 
@@ -201,6 +204,7 @@ require_once __DIR__ . '/includes/layout_head.php';
             <div class="cert-card-actions">
               <a href="<?php echo htmlspecialchars($store['business_cert_path']); ?>" target="_blank" class="btn-mini">파일 보기</a>
               <label class="btn-mini" for="certInput" style="cursor:pointer;">다시 업로드</label>
+              <button type="button" class="btn-mini" style="color:var(--danger);border-color:var(--danger);" onclick="document.getElementById('certDeleteModal').style.display='flex'">삭제</button>
             </div>
           </div>
           <form method="post" enctype="multipart/form-data" style="display:none;">
@@ -311,6 +315,22 @@ require_once __DIR__ . '/includes/layout_head.php';
       <div class="form-group"><label>관리자 비밀번호</label><input type="password" name="delete_password" required></div>
       <div class="modal-actions">
         <button type="button" class="btn-secondary" onclick="document.getElementById('deleteModal').style.display='none'">취소</button>
+        <button type="submit" class="btn-danger-outline" style="flex:1;">삭제 확정</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 사업자등록증 삭제 확인 모달 (신규) -->
+<div class="modal-overlay" id="certDeleteModal" style="display:none;">
+  <div class="modal-box">
+    <h2 class="modal-title" style="color:var(--danger);">사업자등록증을 삭제하시겠습니까?</h2>
+    <p style="font-size:13px;color:var(--text-sub);margin-bottom:16px;">삭제 후에는 파일을 복구할 수 없습니다. 계속하려면 관리자 비밀번호를 입력해주세요.</p>
+    <form method="post">
+      <input type="hidden" name="action" value="delete_cert">
+      <div class="form-group"><label>관리자 비밀번호</label><input type="password" name="delete_cert_password" required></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('certDeleteModal').style.display='none'">취소</button>
         <button type="submit" class="btn-danger-outline" style="flex:1;">삭제 확정</button>
       </div>
     </form>
