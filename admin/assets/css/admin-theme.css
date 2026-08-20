@@ -1,0 +1,20 @@
+/* ===== CareForm Admin 전용 테마 — 최고관리자 백오피스 (다크 사이드바로 구분) ===== */
+.admin-sidebar {
+  background: #1F2420 !important;
+  border-right: none !important;
+}
+.admin-sidebar .sidebar-logo { border-bottom: 1px solid rgba(255,255,255,0.08); }
+.admin-sidebar .logo-text { color: #F7F6F2; }
+.admin-sidebar .admin-tag,
+.admin-auth-page .admin-tag {
+  font-size: 11px; font-weight: 700; color: #B8935A;
+  border: 1px solid #B8935A; border-radius: 999px; padding: 1px 8px; margin-left: 6px; vertical-align: middle;
+}
+.admin-sidebar .nav-item { color: #C9C6BE; }
+.admin-sidebar .nav-item:hover { background: rgba(255,255,255,0.06); }
+.admin-sidebar .nav-item.active { background: #55705C; color: #fff; }
+.admin-sidebar .logout-btn { color: #C9C6BE; border-color: rgba(255,255,255,0.15); }
+.admin-sidebar .logout-btn:hover { background: rgba(255,255,255,0.06); }
+
+.admin-auth-page .auth-card { border: 1px solid var(--border); }
+.badge-inactive { background: #F1EFE9; color: #8A8478; }
