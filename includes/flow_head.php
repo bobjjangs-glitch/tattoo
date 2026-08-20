@@ -8,7 +8,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title><?= isset($pageTitle) ? htmlspecialchars($pageTitle) . ' - SalonForm' : 'SalonForm' ?></title>
+<title><?= isset($pageTitle) ? htmlspecialchars($pageTitle) . ' - CareForm' : 'CareForm' ?></title>
 <link rel="stylesheet" href="/tattoo/assets/css/common.css">
+<link rel="stylesheet" href="/tattoo/assets/css/theme-brand.css">
 </head>
 <body class="flow-body">

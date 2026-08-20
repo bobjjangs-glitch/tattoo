@@ -4,7 +4,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title><?php echo isset($pageTitle) ? htmlspecialchars($pageTitle) . ' - SalonForm' : 'SalonForm'; ?></title>
+<title><?php echo isset($pageTitle) ? htmlspecialchars($pageTitle) . ' - CareForm' : 'CareForm'; ?></title>
 <link rel="stylesheet" href="/tattoo/assets/css/common.css">
+<link rel="stylesheet" href="/tattoo/assets/css/theme-brand.css">
 </head>
 <body>

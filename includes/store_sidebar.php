@@ -7,7 +7,7 @@ $isOwner = ($actorRole === 'owner');
 $canManageConsent = in_array($actorRole, ['owner', 'admin'], true);
 ?>
 <aside class="sidebar">
-  <div class="sidebar-logo"><span class="logo-text">SalonForm</span></div>
+  <div class="sidebar-logo"><span class="logo-text">CareForm</span></div>
   <nav class="sidebar-nav">
     <?php if ($isOwner): ?>
       <a href="dashboard.php" class="nav-item">🏠 매장 목록</a>

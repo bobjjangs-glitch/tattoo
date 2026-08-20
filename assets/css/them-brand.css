@@ -1,0 +1,56 @@
+/* =========================================================
+   CareForm 브랜드 리뉴얼 테마 (2026 트렌드 반영)
+   common.css 뒤에 반드시 이 파일을 추가로 불러와야 적용됩니다.
+   ========================================================= */
+
+:root {
+  --primary: #C2255C;
+  --primary-hover: #A81E4E;
+  --primary-light: #FCE7EF;
+  --border: #EAE4DF;
+  --text-main: #221E1B;
+  --text-sub: #8B8078;
+  --text-body: #4A433E;
+  --danger: #DC2626;
+  --danger-light: #FEF2F2;
+  --bg-page: #FAF8F6;
+  --bg-card-soft: #F5F2EF;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --accent-gold: #C9932E;
+}
+
+body { background: var(--bg-page); }
+
+/* 카드형 UI에 은은한 elevation 추가 — 기존 플랫한 느낌 탈피 */
+.item-card, .store-card, .stat-card, .settings-section, .guide-card, .chart-card,
+.recent-card, .detail-card, .data-table, .consent-card, .empty-state {
+  box-shadow: 0 1px 3px rgba(34, 30, 27, 0.05);
+}
+
+/* 매장 허브 히어로 카드 — 인디고 그라디언트 → 베리 그라디언트로 전환 */
+.shop-hub-header-card {
+  background: linear-gradient(135deg, #C2255C 0%, #7C1D42 100%);
+}
+
+/* 헤드라인 타이포그래피 — 2026 트렌드(볼드 에디토리얼) 반영 */
+.page-title, .shop-hub-header-card h1, .auth-logo, .sidebar-logo .logo-text {
+  letter-spacing: -0.6px;
+  font-weight: 800;
+}
+
+/* 체험(trial) 배지에 골드 포인트 부여 */
+.status-badge.trial { background: #FBF3E3; color: var(--accent-gold); }
+
+/* 버튼 마이크로 인터랙션 — hover 시 살짝 떠오르는 느낌 */
+.btn-primary, .btn-add, .btn-upgrade {
+  transition: background .2s, transform .12s;
+}
+.btn-primary:hover, .btn-add:hover, .btn-upgrade:hover { transform: translateY(-1px); }
+
+/* common.css에 하드코딩된 구 브랜드 색상(인디고) 개별 보정 */
+.floating-chat-btn { background: var(--primary); box-shadow: 0 4px 14px rgba(194,37,92,0.35); }
+.floating-chat-btn:hover { background: var(--primary-hover); }
+.floating-chat-header { background: var(--primary-light); }
+.badge-active { background: var(--primary-light); color: var(--primary); }
+.badge-industry { background: var(--primary-light); color: var(--primary); }

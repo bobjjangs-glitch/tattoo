@@ -63,7 +63,7 @@ include __DIR__ . '/includes/layout_head.php';
 ?>
 <div class="auth-page">
   <div class="auth-card">
-    <div class="auth-logo">SalonForm</div>
+    <div class="auth-logo">CareForm</div>
     <p class="auth-subtitle">10초 만에 시작하세요</p>
 
     <?php if (!empty($error)): ?>

@@ -64,13 +64,14 @@ $pageTitle = '직원 로그인';
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>직원 로그인 - SalonForm</title>
+<title>직원 로그인 - CareForm</title>
 <link rel="stylesheet" href="/tattoo/assets/css/common.css">
+<link rel="stylesheet" href="/tattoo/assets/css/theme-brand.css">
 </head>
 <body>
 <div class="auth-page">
   <div class="auth-card">
-    <div class="auth-logo">SalonForm</div>
+    <div class="auth-logo">CareForm</div>
     <p class="auth-subtitle">직원 계정으로 로그인하세요</p>
     <?php if ($loginError): ?>
       <div class="alert-error"><?php echo htmlspecialchars($loginError); ?></div>
