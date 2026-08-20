@@ -61,7 +61,7 @@ require_once __DIR__ . '/includes/layout_head.php';
 ?>
 <div class="dashboard-layout">
   <aside class="sidebar">
-    <div class="sidebar-logo"><span class="logo-text">SalonForm</span></div>
+    <div class="sidebar-logo"><span class="logo-text">CareForm</span></div>
     <nav class="sidebar-nav">
       <a href="dashboard.php" class="nav-item active">🏠 매장 목록</a>
     </nav>

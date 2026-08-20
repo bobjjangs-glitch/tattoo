@@ -174,7 +174,7 @@ require_once __DIR__ . '/includes/layout_head.php';
       <div class="guide-card">
         <h2>시작 가이드</h2>
         <p style="font-size:13px;color:var(--text-sub);margin-bottom:16px;">
-          살롱폼을 시작하기 위한 단계를 완료하세요 &nbsp; (<?php echo $doneCount; ?>/<?php echo count($steps); ?> 완료)
+          케어폼을 시작하기 위한 단계를 완료하세요 &nbsp; (<?php echo $doneCount; ?>/<?php echo count($steps); ?> 완료)
         </p>
         <div class="guide-progress-track">
           <div class="guide-progress-fill" style="width:<?php echo $progressPct; ?>%;"></div>
@@ -235,6 +235,12 @@ require_once __DIR__ . '/includes/layout_head.php';
             $svgWidth = count($salesChartDays) * ($barWidth + $gap);
           ?>
           <svg width="<?php echo $svgWidth; ?>" height="<?php echo $chartHeight + 24; ?>" viewBox="0 0 <?php echo $svgWidth; ?> <?php echo $chartHeight + 24; ?>">
+            <defs>
+              <linearGradient id="salesBarGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#5E7D66" />
+                <stop offset="100%" stop-color="#3E5544" />
+              </linearGradient>
+            </defs>
             <?php $x = 0; foreach ($salesChartDays as $date => $amt): ?>
               <?php
                 $barH = $amt > 0 ? max(2, round(($amt / $salesChartMax) * $chartHeight)) : 1;
@@ -242,7 +248,8 @@ require_once __DIR__ . '/includes/layout_head.php';
                 $label = date('n/j', strtotime($date));
               ?>
               <rect class="chart-bar" x="<?php echo $x; ?>" y="<?php echo $y; ?>"
-                    width="<?php echo $barWidth; ?>" height="<?php echo $barH; ?>" rx="2">
+                    width="<?php echo $barWidth; ?>" height="<?php echo $barH; ?>" rx="4"
+                    fill="url(#salesBarGradient)">
                 <title><?php echo $label; ?> · 매출 <?php echo number_format($amt); ?>원</title>
               </rect>
               <?php if ($x === 0 || (($x / ($barWidth + $gap)) % 5 == 0)): ?>
@@ -265,6 +272,12 @@ require_once __DIR__ . '/includes/layout_head.php';
             $svgWidth = count($chartDays) * ($barWidth + $gap);
           ?>
           <svg width="<?php echo $svgWidth; ?>" height="<?php echo $chartHeight + 24; ?>" viewBox="0 0 <?php echo $svgWidth; ?> <?php echo $chartHeight + 24; ?>">
+            <defs>
+              <linearGradient id="consentBarGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#B8935A" />
+                <stop offset="100%" stop-color="#8A6A34" />
+              </linearGradient>
+            </defs>
             <?php $x = 0; foreach ($chartDays as $date => $cnt): ?>
               <?php
                 $barH = $cnt > 0 ? max(2, round(($cnt / $chartMax) * $chartHeight)) : 1;
@@ -272,7 +285,8 @@ require_once __DIR__ . '/includes/layout_head.php';
                 $label = date('n/j', strtotime($date));
               ?>
               <rect class="chart-bar" x="<?php echo $x; ?>" y="<?php echo $y; ?>"
-                    width="<?php echo $barWidth; ?>" height="<?php echo $barH; ?>" rx="2">
+                    width="<?php echo $barWidth; ?>" height="<?php echo $barH; ?>" rx="4"
+                    fill="url(#consentBarGradient)">
                 <title><?php echo $label; ?> · 동의서 작성 <?php echo $cnt; ?>건</title>
               </rect>
               <?php if ($x === 0 || (($x / ($barWidth + $gap)) % 5 == 0)): ?>
