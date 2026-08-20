@@ -13,7 +13,7 @@ if ($storeId === '') {
 
 $actor = requireStoreAccess($pdo, $storeId);
 $actorRole = $actor['role'];
-$canDelete = in_array($actorRole, ['owner', 'admin'], true); // 삭제는 되돌릴 수 없는 작업이라 대표/관리자만 허용
+$canDelete = in_array($actorRole, ['owner', 'admin'], true);
 
 $stmt = $pdo->prepare('SELECT id, name, industry FROM ss_stores WHERE id = ?');
 $stmt->execute([$storeId]);
@@ -26,7 +26,7 @@ if (!$store) {
 logAccess($pdo, $storeId, $actor, 'view_customer_list');
 
 $keyword = trim($_GET['keyword'] ?? '');
-$sql = 'SELECT id, name, phone_masked, gender, memo, created_at FROM ss_customers WHERE store_id = ?';
+$sql = 'SELECT id, name, phone_masked, gender, memo, created_at FROM ss_customers WHERE store_id = ? AND deleted_at IS NULL';
 $params = [$storeId];
 if ($keyword !== '') {
     $sql .= ' AND (name LIKE ? OR phone_masked LIKE ?)';
@@ -38,7 +38,7 @@ $listStmt = $pdo->prepare($sql);
 $listStmt->execute($params);
 $customers = $listStmt->fetchAll();
 
-// ── 각 고객의 서명 완료 동의서 "건수"를 조회 ──
+// ── 각 고객의 서명 완료 동의서 "건수"를 조회 (삭제된 동의서는 제외) ──
 $docCountByCustomer = [];
 if (!empty($customers)) {
     $customerIds = array_column($customers, 'id');
@@ -47,7 +47,7 @@ if (!empty($customers)) {
         $docStmt = $pdo->prepare(
             "SELECT customer_id, COUNT(*) AS cnt
              FROM ss_consent_documents
-             WHERE store_id = ? AND customer_id IN ($placeholders)
+             WHERE store_id = ? AND deleted_at IS NULL AND customer_id IN ($placeholders)
              GROUP BY customer_id"
         );
         $docStmt->execute(array_merge([$storeId], $customerIds));
@@ -59,14 +59,12 @@ if (!empty($customers)) {
     }
 }
 
-/** 성별 코드를 화면 표시용 텍스트로 변환 */
 function genderLabel(?string $g): string {
     if ($g === 'male') return '남';
     if ($g === 'female') return '여';
     return '-';
 }
 
-/** 메모(HTML)에서 태그를 제거하고 목록에 보일 짧은 미리보기 텍스트로 변환 */
 function memoPreview(?string $memoHtml): string {
     if ($memoHtml === null || trim($memoHtml) === '') return '-';
     $plain = trim(preg_replace('/\s+/', ' ', strip_tags($memoHtml)));

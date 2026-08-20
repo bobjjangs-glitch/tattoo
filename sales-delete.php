@@ -1,4 +1,9 @@
 <?php
+/**
+ * sales-delete.php
+ * 매출 내역 삭제 처리 (소프트 삭제 — deleted_at만 기록)
+ * 삭제는 대표(owner) 또는 관리자 권한 직원(admin)만 허용
+ */
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
@@ -18,9 +23,9 @@ if ($storeId === '' || $saleId === '') {
 }
 
 $actor = requireStoreAccess($pdo, $storeId);
-requireAdminRole($actor, $storeId); // 대표/관리자만 매출 삭제 가능
+requireAdminRole($actor, $storeId);
 
-$stmt = $pdo->prepare('SELECT id, amount FROM ss_sales WHERE id = ? AND store_id = ?');
+$stmt = $pdo->prepare('SELECT id, amount FROM ss_sales WHERE id = ? AND store_id = ? AND deleted_at IS NULL');
 $stmt->execute([$saleId, $storeId]);
 $sale = $stmt->fetch();
 if (!$sale) {
@@ -30,7 +35,7 @@ if (!$sale) {
 }
 
 try {
-    $del = $pdo->prepare('DELETE FROM ss_sales WHERE id = ? AND store_id = ?');
+    $del = $pdo->prepare('UPDATE ss_sales SET deleted_at = NOW() WHERE id = ? AND store_id = ?');
     $del->execute([$saleId, $storeId]);
     logAccess($pdo, $storeId, $actor, 'delete_sale', 'sale', $saleId, number_format((int)$sale['amount']) . '원');
     header('Location: sales.php?id=' . urlencode($storeId) . '&deleted=1');

@@ -1,8 +1,8 @@
 <?php
 /**
  * customer-delete.php
- * 고객 삭제 처리 (화면 없음, POST 요청만 처리 후 store.php로 리다이렉트)
- * 삭제는 되돌릴 수 없는 작업이므로 대표(owner) 또는 관리자 권한 직원(admin)만 허용
+ * 고객 삭제 처리 (소프트 삭제 — deleted_at만 기록, 실제 데이터는 보존)
+ * 삭제는 대표(owner) 또는 관리자 권한 직원(admin)만 허용
  */
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/staff_auth.php';
@@ -19,9 +19,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || $storeId === '' || $customerId === 
 }
 
 $actor = requireStoreAccess($pdo, $storeId);
-requireAdminRole($actor, $storeId); // owner/admin이 아니면 여기서 안내 화면을 띄우고 종료
+requireAdminRole($actor, $storeId);
 
-$stmt = $pdo->prepare('SELECT id, name FROM ss_customers WHERE id = ? AND store_id = ? LIMIT 1');
+$stmt = $pdo->prepare('SELECT id, name FROM ss_customers WHERE id = ? AND store_id = ? AND deleted_at IS NULL LIMIT 1');
 $stmt->execute([$customerId, $storeId]);
 $customer = $stmt->fetch();
 if (!$customer) {
@@ -32,12 +32,11 @@ if (!$customer) {
 try {
     $pdo->beginTransaction();
 
-    // 고객을 삭제하기 전, 이 고객과 연결된 서명 완료 동의서 기록을 먼저 정리한다.
-    // (서명 이미지 파일 자체는 남지만, DB상 참조가 끊긴 채로 남는 것을 막기 위함)
-    $delDocs = $pdo->prepare('DELETE FROM ss_consent_documents WHERE customer_id = ? AND store_id = ?');
+    // 연결된 서명 완료 동의서도 함께 소프트 삭제 (실제 데이터는 보존됨)
+    $delDocs = $pdo->prepare('UPDATE ss_consent_documents SET deleted_at = NOW() WHERE customer_id = ? AND store_id = ? AND deleted_at IS NULL');
     $delDocs->execute([$customerId, $storeId]);
 
-    $delCustomer = $pdo->prepare('DELETE FROM ss_customers WHERE id = ? AND store_id = ?');
+    $delCustomer = $pdo->prepare('UPDATE ss_customers SET deleted_at = NOW() WHERE id = ? AND store_id = ?');
     $delCustomer->execute([$customerId, $storeId]);
 
     $pdo->commit();

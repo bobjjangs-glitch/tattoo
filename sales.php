@@ -14,7 +14,7 @@ if ($storeId === '') {
 
 $actor = requireStoreAccess($pdo, $storeId);
 $actorRole = $actor['role'];
-$canDelete = in_array($actorRole, ['owner', 'admin'], true); // 매출 삭제는 대표/관리자만
+$canDelete = in_array($actorRole, ['owner', 'admin'], true);
 
 $stmt = $pdo->prepare('SELECT id, name FROM ss_stores WHERE id = ?');
 $stmt->execute([$storeId]);
@@ -24,7 +24,6 @@ if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접�
 $errorMsg = '';
 $fieldErrors = [];
 
-// ── 매출 등록 처리 ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create') {
     $amountRaw = preg_replace('/\D/', '', $_POST['amount'] ?? '');
     $saleDate = $_POST['sale_date'] ?? date('Y-m-d');
@@ -38,8 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
         $fieldErrors['sale_date'] = '날짜 형식이 올바르지 않습니다.';
     }
     if ($customerId !== '') {
-        // 다른 매장 고객 id를 임의로 넣는 것을 방지 — 반드시 이 매장 소속인지 재확인
-        $chk = $pdo->prepare('SELECT id FROM ss_customers WHERE id = ? AND store_id = ?');
+        $chk = $pdo->prepare('SELECT id FROM ss_customers WHERE id = ? AND store_id = ? AND deleted_at IS NULL');
         $chk->execute([$customerId, $storeId]);
         if (!$chk->fetch()) {
             $fieldErrors['customer_id'] = '고객 정보를 찾을 수 없습니다.';
@@ -96,11 +94,10 @@ $monthStart = date('Y-m-01');
 $lastMonthStart = date('Y-m-01', strtotime('-1 month'));
 $lastMonthEnd = date('Y-m-t', strtotime('-1 month'));
 
-$todaySales = safeSum($pdo, 'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date = ?', [$storeId, $today]);
-$monthSales = safeSum($pdo, 'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date >= ?', [$storeId, $monthStart]);
-$lastMonthSales = safeSum($pdo, 'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date BETWEEN ? AND ?', [$storeId, $lastMonthStart, $lastMonthEnd]);
+$todaySales = safeSum($pdo, 'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date = ? AND deleted_at IS NULL', [$storeId, $today]);
+$monthSales = safeSum($pdo, 'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date >= ? AND deleted_at IS NULL', [$storeId, $monthStart]);
+$lastMonthSales = safeSum($pdo, 'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date BETWEEN ? AND ? AND deleted_at IS NULL', [$storeId, $lastMonthStart, $lastMonthEnd]);
 
-// 최근 30일 일별 매출 차트 데이터
 $chartDays = [];
 for ($i = 29; $i >= 0; $i--) {
     $d = date('Y-m-d', strtotime("-{$i} day"));
@@ -108,7 +105,7 @@ for ($i = 29; $i >= 0; $i--) {
 }
 $rawDaily = safeFetchAllS($pdo,
     'SELECT sale_date, COALESCE(SUM(amount),0) AS total
-     FROM ss_sales WHERE store_id = ? AND sale_date >= ?
+     FROM ss_sales WHERE store_id = ? AND sale_date >= ? AND deleted_at IS NULL
      GROUP BY sale_date',
     [$storeId, date('Y-m-d', strtotime('-29 day'))]);
 foreach ($rawDaily as $row) {
@@ -119,22 +116,21 @@ foreach ($rawDaily as $row) {
 $chartTotal = array_sum($chartDays);
 $chartMax = max(1, max($chartDays));
 
-// 고객 선택용 목록 (최근 등록 순 200명)
 $customerOptions = safeFetchAllS($pdo,
-    'SELECT id, name, phone_masked FROM ss_customers WHERE store_id = ? ORDER BY created_at DESC LIMIT 200',
+    'SELECT id, name, phone_masked FROM ss_customers WHERE store_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 200',
     [$storeId]);
 
-// 매출 내역 목록 (최근 100건). staff/customer join은 collation 사고 방지를 위해 COLLATE로 강제 통일.
+// 매출 내역 목록 (최근 100건, 삭제된 매출/고객 제외)
 $sales = safeFetchAllS($pdo,
     "SELECT sl.id, sl.amount, sl.memo, sl.sale_date, sl.created_at,
             c.name AS customer_name,
             st.name AS staff_name
      FROM ss_sales sl
      LEFT JOIN ss_customers c
-        ON c.id COLLATE utf8mb4_unicode_ci = sl.customer_id COLLATE utf8mb4_unicode_ci
+        ON c.id COLLATE utf8mb4_unicode_ci = sl.customer_id COLLATE utf8mb4_unicode_ci AND c.deleted_at IS NULL
      LEFT JOIN ss_store_staff st
         ON st.id COLLATE utf8mb4_unicode_ci = sl.staff_id COLLATE utf8mb4_unicode_ci
-     WHERE sl.store_id = ?
+     WHERE sl.store_id = ? AND sl.deleted_at IS NULL
      ORDER BY sl.sale_date DESC, sl.created_at DESC
      LIMIT 100",
     [$storeId]);
@@ -372,14 +368,14 @@ function openDeleteSaleModal(saleId, amount) {
 
   var selectedDate = parseYmd(hiddenInput.value || toYmd(new Date()));
   var viewYear = selectedDate.getFullYear();
-  var viewMonth = selectedDate.getMonth(); // 0-based
+  var viewMonth = selectedDate.getMonth();
 
   function render() {
     monthLabel.textContent = viewYear + '년 ' + (viewMonth + 1) + '월';
     grid.innerHTML = '';
 
     var firstDay = new Date(viewYear, viewMonth, 1);
-    var startWeekday = firstDay.getDay(); // 0=일
+    var startWeekday = firstDay.getDay();
     var daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
     var daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate();
 
@@ -388,15 +384,12 @@ function openDeleteSaleModal(saleId, amount) {
     var selectedStr = toYmd(selectedDate);
 
     var cells = [];
-    // 이전달 꼬리
     for (var i = startWeekday - 1; i >= 0; i--) {
       cells.push({ day: daysInPrevMonth - i, other: true, y: viewYear, m: viewMonth - 1 });
     }
-    // 이번달
     for (var d = 1; d <= daysInMonth; d++) {
       cells.push({ day: d, other: false, y: viewYear, m: viewMonth });
     }
-    // 다음달 머리 (6행 42칸 맞춤)
     var remain = 42 - cells.length;
     for (var n = 1; n <= remain; n++) {
       cells.push({ day: n, other: true, y: viewYear, m: viewMonth + 1 });
@@ -471,7 +464,6 @@ function openDeleteSaleModal(saleId, amount) {
     if (!document.getElementById('saleDateWrap').contains(e.target)) closePopup();
   });
 
-  // 최초 표시값 세팅
   valueText.textContent = toDisplayText(selectedDate);
   render();
 })();

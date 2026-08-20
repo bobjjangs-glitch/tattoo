@@ -3,6 +3,7 @@ ob_start();
 
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
+require_once __DIR__ . '/includes/login_throttle.php';
 
 $pdo = getDbConnection();
 
@@ -17,23 +18,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $storeId !== '') {
     $storeId = $_POST['store_id'] ?? '';
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
+    $ip = getClientIp();
 
     if ($storeId === '') {
         $loginError = '잘못된 접속 경로입니다. 매장 대표에게 전달받은 직원 로그인 링크로 다시 접속해주세요.';
     } elseif ($email === '' || $password === '') {
         $loginError = '이메일과 비밀번호를 모두 입력해주세요.';
+    } elseif (isStoreLoginLocked($pdo, $storeId, $ip)) {
+        $loginError = '로그인 시도가 너무 많습니다. ' . LOGIN_LOCK_MINUTES . '분 후 다시 시도해주세요.';
     } else {
         $stmt = $pdo->prepare('SELECT id, name, password_hash, role, is_active FROM ss_store_staff WHERE store_id = ? AND LOWER(email) = LOWER(?)');
         $stmt->execute([$storeId, $email]);
         $staff = $stmt->fetch();
 
         if (!$staff) {
+            recordStoreLoginAttempt($pdo, $storeId, $ip, false);
             $loginError = '해당 매장에 등록된 이메일이 아닙니다.';
         } elseif (!password_verify($password, $staff['password_hash'])) {
+            recordStoreLoginAttempt($pdo, $storeId, $ip, false);
             $loginError = '비밀번호가 일치하지 않습니다.';
         } elseif (!$staff['is_active']) {
+            recordStoreLoginAttempt($pdo, $storeId, $ip, false);
             $loginError = '비활성화된 계정입니다. 매장 대표에게 문의해주세요.';
         } else {
+            recordStoreLoginAttempt($pdo, $storeId, $ip, true);
+
             // ⚠ 핵심 수정: 이전에 남아있을 수 있는 대표(오너) 세션 값을 반드시 제거
             unset($_SESSION['user_id'], $_SESSION['user_email'], $_SESSION['user_name']);
 

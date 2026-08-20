@@ -2,7 +2,6 @@
 /**
  * consent-history.php
  * 특정 고객이 서명한 "모든" 동의서 목록을 최신순으로 보여주는 화면
- * store.php처럼 대표/관리자/직원 모두 접근 가능 (requireStoreAccess 기준)
  */
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/staff_auth.php';
@@ -19,7 +18,7 @@ if ($storeId === '' || $customerId === '') {
 }
 
 $actor = requireStoreAccess($pdo, $storeId);
-$canDelete = in_array($actor['role'], ['owner', 'admin'], true); // 서명 기록 삭제는 대표/관리자만 허용
+$canDelete = in_array($actor['role'], ['owner', 'admin'], true);
 
 $stmt = $pdo->prepare('SELECT id, name FROM ss_stores WHERE id = ? LIMIT 1');
 $stmt->execute([$storeId]);
@@ -29,7 +28,7 @@ if (!$store) {
     die('매장을 찾을 수 없습니다.');
 }
 
-$stmt = $pdo->prepare('SELECT id, name, phone_masked FROM ss_customers WHERE id = ? AND store_id = ? LIMIT 1');
+$stmt = $pdo->prepare('SELECT id, name, phone_masked FROM ss_customers WHERE id = ? AND store_id = ? AND deleted_at IS NULL LIMIT 1');
 $stmt->execute([$customerId, $storeId]);
 $customer = $stmt->fetch();
 if (!$customer) {
@@ -37,16 +36,13 @@ if (!$customer) {
     die('고객 정보를 찾을 수 없습니다.');
 }
 
-// 해당 고객이 서명한 모든 동의서를 최신순으로 조회 (건수 제한 없음)
-// ※ ss_consent_documents.staff_id 와 ss_store_staff.id 의 collation이 서로 달라
-//   (utf8mb4_0900_ai_ci vs utf8mb4_unicode_ci) JOIN 시 PDOException이 발생했던 문제를
-//   COLLATE 명시로 강제 통일해 해결함 (임시 조치 — 근본 해결은 DB 테이블 collation 통일 필요)
+// 삭제된 동의서(deleted_at IS NOT NULL)는 목록에서 제외
 $stmt = $pdo->prepare(
     'SELECT d.id, d.template_snapshot, d.signed_at, d.created_at, d.staff_id, s.name AS staff_name
      FROM ss_consent_documents d
      LEFT JOIN ss_store_staff s
         ON s.id COLLATE utf8mb4_unicode_ci = d.staff_id COLLATE utf8mb4_unicode_ci
-     WHERE d.store_id = ? AND d.customer_id = ?
+     WHERE d.store_id = ? AND d.customer_id = ? AND d.deleted_at IS NULL
      ORDER BY d.signed_at DESC, d.created_at DESC'
 );
 $stmt->execute([$storeId, $customerId]);

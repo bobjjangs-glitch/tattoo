@@ -11,7 +11,6 @@ $stmt->execute([$storeId, $user['id']]);
 $store = $stmt->fetch();
 if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접근 권한이 없습니다.'); }
 
-// --- 안전한 조회 헬퍼: 테이블/컬럼이 아직 없어도 화면이 죽지 않도록 방어 ---
 function safeCount(PDO $pdo, string $sql, array $params): int {
     try {
         $stmt = $pdo->prepare($sql);
@@ -37,31 +36,30 @@ $lastMonthStart = date('Y-m-01', strtotime('-1 month'));
 $lastMonthEnd = date('Y-m-t', strtotime('-1 month'));
 
 $newCustomersThisMonth = safeCount($pdo,
-    'SELECT COUNT(*) FROM ss_customers WHERE store_id = ? AND created_at >= ?',
+    'SELECT COUNT(*) FROM ss_customers WHERE store_id = ? AND created_at >= ? AND deleted_at IS NULL',
     [$storeId, $monthStart]);
 $newCustomersLastMonth = safeCount($pdo,
-    'SELECT COUNT(*) FROM ss_customers WHERE store_id = ? AND created_at BETWEEN ? AND ?',
+    'SELECT COUNT(*) FROM ss_customers WHERE store_id = ? AND created_at BETWEEN ? AND ? AND deleted_at IS NULL',
     [$storeId, $lastMonthStart, $lastMonthEnd . ' 23:59:59']);
-$totalCustomers = safeCount($pdo, 'SELECT COUNT(*) FROM ss_customers WHERE store_id = ?', [$storeId]);
+$totalCustomers = safeCount($pdo, 'SELECT COUNT(*) FROM ss_customers WHERE store_id = ? AND deleted_at IS NULL', [$storeId]);
 
 $consentThisMonth = safeCount($pdo,
-    'SELECT COUNT(*) FROM ss_consent_documents WHERE store_id = ? AND created_at >= ?',
+    'SELECT COUNT(*) FROM ss_consent_documents WHERE store_id = ? AND created_at >= ? AND deleted_at IS NULL',
     [$storeId, $monthStart]);
 $consentLastMonth = safeCount($pdo,
-    'SELECT COUNT(*) FROM ss_consent_documents WHERE store_id = ? AND created_at BETWEEN ? AND ?',
+    'SELECT COUNT(*) FROM ss_consent_documents WHERE store_id = ? AND created_at BETWEEN ? AND ? AND deleted_at IS NULL',
     [$storeId, $lastMonthStart, $lastMonthEnd . ' 23:59:59']);
-$consentTotal = safeCount($pdo, 'SELECT COUNT(*) FROM ss_consent_documents WHERE store_id = ?', [$storeId]);
+$consentTotal = safeCount($pdo, 'SELECT COUNT(*) FROM ss_consent_documents WHERE store_id = ? AND deleted_at IS NULL', [$storeId]);
 $templateCount = safeCount($pdo, 'SELECT COUNT(*) FROM ss_consent_templates WHERE store_id = ?', [$storeId]);
 
-// ── 매출 통계 (ss_sales) ──
 $todaySales = safeCount($pdo,
-    'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date = ?',
+    'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date = ? AND deleted_at IS NULL',
     [$storeId, $today]);
 $monthSales = safeCount($pdo,
-    'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date >= ?',
+    'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date >= ? AND deleted_at IS NULL',
     [$storeId, $monthStart]);
 $lastMonthSales = safeCount($pdo,
-    'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date BETWEEN ? AND ?',
+    'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date BETWEEN ? AND ? AND deleted_at IS NULL',
     [$storeId, $lastMonthStart, $lastMonthEnd]);
 
 $hasTemplate = $templateCount > 0;
@@ -89,7 +87,7 @@ for ($i = 29; $i >= 0; $i--) {
 $rawDaily = safeFetchAll($pdo,
     'SELECT DATE(created_at) AS d, COUNT(*) AS cnt
      FROM ss_consent_documents
-     WHERE store_id = ? AND created_at >= ?
+     WHERE store_id = ? AND created_at >= ? AND deleted_at IS NULL
      GROUP BY DATE(created_at)',
     [$storeId, date('Y-m-d', strtotime('-29 day'))]);
 foreach ($rawDaily as $row) {
@@ -101,7 +99,6 @@ $chartTotal = array_sum($chartDays);
 $chartAvg = round($chartTotal / 30, 1);
 $chartMax = max(1, max($chartDays));
 
-// ── 최근 30일 매출 차트 (동의서 차트와 별도 변수로 분리해 충돌 방지) ──
 $salesChartDays = [];
 for ($i = 29; $i >= 0; $i--) {
     $d = date('Y-m-d', strtotime("-{$i} day"));
@@ -110,7 +107,7 @@ for ($i = 29; $i >= 0; $i--) {
 $rawSalesDaily = safeFetchAll($pdo,
     'SELECT sale_date AS d, COALESCE(SUM(amount),0) AS total
      FROM ss_sales
-     WHERE store_id = ? AND sale_date >= ?
+     WHERE store_id = ? AND sale_date >= ? AND deleted_at IS NULL
      GROUP BY sale_date',
     [$storeId, date('Y-m-d', strtotime('-29 day'))]);
 foreach ($rawSalesDaily as $row) {
@@ -124,7 +121,7 @@ $salesChartMax = max(1, max($salesChartDays));
 
 $recentCustomers = safeFetchAll($pdo,
     'SELECT id, name, phone_masked, created_at FROM ss_customers
-     WHERE store_id = ? ORDER BY created_at DESC LIMIT 5',
+     WHERE store_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 5',
     [$storeId]);
 
 $recentConsents = safeFetchAll($pdo,
@@ -132,7 +129,7 @@ $recentConsents = safeFetchAll($pdo,
      FROM ss_consent_documents cd
      LEFT JOIN ss_customers c
         ON c.id COLLATE utf8mb4_unicode_ci = cd.customer_id COLLATE utf8mb4_unicode_ci
-     WHERE cd.store_id = ? ORDER BY cd.created_at DESC LIMIT 5',
+     WHERE cd.store_id = ? AND cd.deleted_at IS NULL ORDER BY cd.created_at DESC LIMIT 5',
     [$storeId]);
 
 $activePage = 'dashboard';

@@ -39,32 +39,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'chang
     }
 }
 
+// ── 사업자등록증 업로드 (보안 강화: 확장자 + 실제 파일 내용(MIME) 이중 검사, 저장 파일명 랜덤화) ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_cert' && !empty($_FILES['cert']['name'])) {
     $file = $_FILES['cert'];
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
     if (!in_array($ext, ['jpg', 'jpeg', 'png', 'pdf'], true)) {
         $certError = 'jpg, png, pdf 파일만 업로드할 수 있습니다.';
     } elseif ($file['size'] > 10 * 1024 * 1024) {
         $certError = '파일 크기는 10MB 이하만 가능합니다.';
     } else {
-        $uploadDir = __DIR__ . '/uploads/business-certs/' . $storeId . '/';
-        if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
-        if (!is_dir($uploadDir) || !is_writable($uploadDir)) {
-            $certError = '업로드 폴더 권한이 없습니다.';
+        // 확장자만 바꿔서 올리는 우회를 막기 위해 실제 파일 내용(MIME 시그니처)까지 검사한다.
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $realMime = $finfo->file($file['tmp_name']);
+        $allowedMime = [
+            'jpg'  => ['image/jpeg'],
+            'jpeg' => ['image/jpeg'],
+            'png'  => ['image/png'],
+            'pdf'  => ['application/pdf'],
+        ];
+        if (!in_array($realMime, $allowedMime[$ext] ?? [], true)) {
+            $certError = '파일 내용이 확장자와 일치하지 않습니다. 올바른 이미지/PDF 파일을 업로드해주세요.';
         } else {
-            if (!empty($store['business_cert_path'])) {
-                $oldPath = __DIR__ . '/' . $store['business_cert_path'];
-                if (is_file($oldPath)) { @unlink($oldPath); }
-            }
-            $newName = 'cert_' . time() . '.' . $ext;
-            if (move_uploaded_file($file['tmp_name'], $uploadDir . $newName)) {
-                $newRelPath = 'uploads/business-certs/' . $storeId . '/' . $newName;
-                $stmt = $pdo->prepare('UPDATE ss_stores SET business_cert_path = ? WHERE id = ?');
-                $stmt->execute([$newRelPath, $storeId]);
-                $store['business_cert_path'] = $newRelPath;
-                $certSuccess = '사업자등록증이 등록되었습니다.';
+            $uploadDir = __DIR__ . '/uploads/business-certs/' . $storeId . '/';
+            if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0755, true); }
+            if (!is_dir($uploadDir) || !is_writable($uploadDir)) {
+                $certError = '업로드 폴더 권한이 없습니다.';
             } else {
-                $certError = '파일 저장에 실패했습니다.';
+                if (!empty($store['business_cert_path'])) {
+                    $oldPath = __DIR__ . '/' . $store['business_cert_path'];
+                    if (is_file($oldPath)) { @unlink($oldPath); }
+                }
+                // 저장 파일명은 서버가 새로 생성 — 원본 파일명은 절대 그대로 쓰지 않는다 (URL 추측 방지)
+                $newName = 'cert_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+                if (move_uploaded_file($file['tmp_name'], $uploadDir . $newName)) {
+                    $newRelPath = 'uploads/business-certs/' . $storeId . '/' . $newName;
+                    $stmt = $pdo->prepare('UPDATE ss_stores SET business_cert_path = ? WHERE id = ?');
+                    $stmt->execute([$newRelPath, $storeId]);
+                    $store['business_cert_path'] = $newRelPath;
+                    $certSuccess = '사업자등록증이 등록되었습니다.';
+                } else {
+                    $certError = '파일 저장에 실패했습니다.';
+                }
             }
         }
     }
