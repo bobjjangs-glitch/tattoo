@@ -16,6 +16,8 @@ $canManageConsent = in_array($actorRole, ['owner', 'admin'], true);
     <?php endif; ?>
     <a href="store.php?id=<?php echo urlencode($storeId); ?>"
        class="nav-item <?php echo $activePage === 'customers' ? 'active' : ''; ?>">👥 고객 관리</a>
+    <a href="sales.php?id=<?php echo urlencode($storeId); ?>"
+       class="nav-item <?php echo $activePage === 'sales' ? 'active' : ''; ?>">💰 매출 관리</a>
     <?php if ($canManageConsent): ?>
       <a href="consent.php?id=<?php echo urlencode($storeId); ?>"
          class="nav-item <?php echo $activePage === 'consent' ? 'active' : ''; ?>">📄 동의서 관리</a>

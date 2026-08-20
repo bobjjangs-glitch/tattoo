@@ -18,6 +18,7 @@ if ($storeId === '' || $documentId === '') {
 }
 
 $actor = requireStoreAccess($pdo, $storeId);
+$canDelete = in_array($actor['role'], ['owner', 'admin'], true); // 서명 기록 삭제는 되돌릴 수 없는 작업이라 대표/관리자만 허용
 
 $stmt = $pdo->prepare('SELECT id, name FROM ss_stores WHERE id = ? LIMIT 1');
 $stmt->execute([$storeId]);
@@ -83,7 +84,7 @@ require_once __DIR__ . '/includes/flow_head.php';
 ?>
 <div class="consent-flow-page">
     <div class="consent-flow-topbar">
-        <a href="store.php?id=<?= urlencode($storeId) ?>" class="btn-back">‹ 위로</a>
+        <a href="consent-history.php?id=<?= urlencode($storeId) ?>&customer_id=<?= urlencode($document['customer_id']) ?>" class="btn-back">‹ 위로</a>
         <div class="consent-flow-topbar-right">
             <a href="store.php?id=<?= urlencode($storeId) ?>" class="btn-exit">↪ 나가기</a>
         </div>
@@ -140,6 +141,39 @@ require_once __DIR__ . '/includes/flow_head.php';
                 <p class="muted">저장된 서명 이미지가 없습니다.</p>
             <?php endif; ?>
         </div>
+
+        <?php if ($canDelete): ?>
+            <div class="consent-section" style="border-top:1px solid var(--border);margin-top:24px;padding-top:20px;">
+                <button type="button" class="btn-danger-outline" onclick="document.getElementById('deleteDocModal').style.display='flex'">
+                    🗑 이 동의서 삭제
+                </button>
+                <p style="font-size:12px;color:var(--text-sub);margin-top:8px;">
+                    삭제하면 법적 증빙 자료로서의 서명 기록이 영구적으로 사라집니다. 신중히 결정해주세요.
+                </p>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
+
+<?php if ($canDelete): ?>
+<div class="modal-overlay" id="deleteDocModal" style="display:none;">
+  <div class="modal-box">
+    <h2 class="modal-title" style="color:var(--danger,#dc3545);">이 동의서를 삭제하시겠습니까?</h2>
+    <p style="font-size:13px;color:var(--text-sub);margin-bottom:16px;">
+        <?= htmlspecialchars($customer['name'] ?? '고객') ?>님의 "<?= htmlspecialchars($template['title'] ?? '동의서') ?>" 서명 기록과 서명 이미지가 영구적으로 삭제됩니다.<br>
+        <strong>이 작업은 되돌릴 수 없습니다.</strong>
+    </p>
+    <form method="post" action="consent-document-delete.php">
+      <input type="hidden" name="id" value="<?= htmlspecialchars($storeId) ?>">
+      <input type="hidden" name="document_id" value="<?= htmlspecialchars($documentId) ?>">
+      <input type="hidden" name="customer_id" value="<?= htmlspecialchars($document['customer_id']) ?>">
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('deleteDocModal').style.display='none'">취소</button>
+        <button type="submit" class="btn-danger-outline" style="flex:1;">삭제 확정</button>
+      </div>
+    </form>
+  </div>
+</div>
+<?php endif; ?>
+
 <?php require_once __DIR__ . '/includes/flow_foot.php'; ?>

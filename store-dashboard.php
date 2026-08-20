@@ -31,6 +31,7 @@ function safeFetchAll(PDO $pdo, string $sql, array $params): array {
     }
 }
 
+$today = date('Y-m-d');
 $monthStart = date('Y-m-01');
 $lastMonthStart = date('Y-m-01', strtotime('-1 month'));
 $lastMonthEnd = date('Y-m-t', strtotime('-1 month'));
@@ -51,6 +52,17 @@ $consentLastMonth = safeCount($pdo,
     [$storeId, $lastMonthStart, $lastMonthEnd . ' 23:59:59']);
 $consentTotal = safeCount($pdo, 'SELECT COUNT(*) FROM ss_consent_documents WHERE store_id = ?', [$storeId]);
 $templateCount = safeCount($pdo, 'SELECT COUNT(*) FROM ss_consent_templates WHERE store_id = ?', [$storeId]);
+
+// ── 매출 통계 (ss_sales) ──
+$todaySales = safeCount($pdo,
+    'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date = ?',
+    [$storeId, $today]);
+$monthSales = safeCount($pdo,
+    'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date >= ?',
+    [$storeId, $monthStart]);
+$lastMonthSales = safeCount($pdo,
+    'SELECT COALESCE(SUM(amount),0) FROM ss_sales WHERE store_id = ? AND sale_date BETWEEN ? AND ?',
+    [$storeId, $lastMonthStart, $lastMonthEnd]);
 
 $hasTemplate = $templateCount > 0;
 $hasCustomer = $totalCustomers > 0;
@@ -89,14 +101,32 @@ $chartTotal = array_sum($chartDays);
 $chartAvg = round($chartTotal / 30, 1);
 $chartMax = max(1, max($chartDays));
 
+// ── 최근 30일 매출 차트 (동의서 차트와 별도 변수로 분리해 충돌 방지) ──
+$salesChartDays = [];
+for ($i = 29; $i >= 0; $i--) {
+    $d = date('Y-m-d', strtotime("-{$i} day"));
+    $salesChartDays[$d] = 0;
+}
+$rawSalesDaily = safeFetchAll($pdo,
+    'SELECT sale_date AS d, COALESCE(SUM(amount),0) AS total
+     FROM ss_sales
+     WHERE store_id = ? AND sale_date >= ?
+     GROUP BY sale_date',
+    [$storeId, date('Y-m-d', strtotime('-29 day'))]);
+foreach ($rawSalesDaily as $row) {
+    if (isset($salesChartDays[$row['d']])) {
+        $salesChartDays[$row['d']] = (int)$row['total'];
+    }
+}
+$salesChartTotal = array_sum($salesChartDays);
+$salesChartAvg = round($salesChartTotal / 30);
+$salesChartMax = max(1, max($salesChartDays));
+
 $recentCustomers = safeFetchAll($pdo,
     'SELECT id, name, phone_masked, created_at FROM ss_customers
      WHERE store_id = ? ORDER BY created_at DESC LIMIT 5',
     [$storeId]);
 
-// 최근 동의서 활동 5건 — cd.id를 document_id로 그대로 사용해 상세보기 링크 연결
-// ※ ss_consent_documents.customer_id 와 ss_customers.id 의 collation 불일치로
-//   consent-history.php에서 발생했던 것과 동일한 오류가 날 수 있어 COLLATE로 미리 방어함
 $recentConsents = safeFetchAll($pdo,
     'SELECT cd.id, cd.created_at, c.name AS customer_name
      FROM ss_consent_documents cd
@@ -128,9 +158,10 @@ require_once __DIR__ . '/includes/layout_head.php';
               <?php echo $store['plan_status'] === 'trial' ? '체험중' : ($store['plan_status'] === 'active' ? '운영 중' : '중지됨'); ?>
             </span>
           </h1>
-          <p>오늘 등록된 고객과 동의서 현황을 확인하세요.</p>
+          <p>오늘 등록된 고객과 동의서, 매출 현황을 확인하세요.</p>
         </div>
         <div class="hub-actions">
+          <a href="sales.php?id=<?php echo urlencode($storeId); ?>" class="btn-white" style="text-decoration:none;">매출 관리</a>
           <a href="consent.php?id=<?php echo urlencode($storeId); ?>" class="btn-white" style="text-decoration:none;">동의서 관리</a>
           <a href="store.php?id=<?php echo urlencode($storeId); ?>" class="btn-white" style="text-decoration:none;">+ 고객 등록</a>
         </div>
@@ -163,6 +194,19 @@ require_once __DIR__ . '/includes/layout_head.php';
 
       <div class="stat-cards">
         <div class="stat-card">
+          <div class="stat-label">💰 오늘 매출</div>
+          <div class="stat-value"><?php echo number_format($todaySales); ?>원</div>
+          <div class="stat-sub"><?php echo date('n월 j일 (D)'); ?> 기준</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">📆 이번달 매출</div>
+          <div class="stat-value"><?php echo number_format($monthSales); ?>원</div>
+          <div class="stat-sub <?php echo $monthSales >= $lastMonthSales ? 'up' : ''; ?>">
+            <?php echo $monthSales >= $lastMonthSales ? '▲' : '▼'; ?>
+            지난달 <?php echo number_format($lastMonthSales); ?>원
+          </div>
+        </div>
+        <div class="stat-card">
           <div class="stat-label">👤 이번달 신규 고객</div>
           <div class="stat-value"><?php echo $newCustomersThisMonth; ?></div>
           <div class="stat-sub <?php echo $newCustomersThisMonth >= $newCustomersLastMonth ? 'up' : ''; ?>">
@@ -183,12 +227,33 @@ require_once __DIR__ . '/includes/layout_head.php';
           <div class="stat-value"><?php echo $consentTotal; ?></div>
           <div class="stat-sub">고객 <?php echo $totalCustomers; ?>명 보유 중</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">🔖 동의서 템플릿</div>
-          <div class="stat-value"><?php echo $templateCount; ?></div>
-          <div class="stat-sub">
-            <a href="consent.php?id=<?php echo urlencode($storeId); ?>">템플릿 관리 →</a>
-          </div>
+      </div>
+
+      <div class="chart-card" style="margin-top:20px;">
+        <h2>최근 30일 매출 추이</h2>
+        <div class="chart-summary">총 <?php echo number_format($salesChartTotal); ?>원 · 일평균 <?php echo number_format($salesChartAvg); ?>원</div>
+        <div class="chart-svg-wrap">
+          <?php
+            $barWidth = 18; $gap = 6; $chartHeight = 120;
+            $svgWidth = count($salesChartDays) * ($barWidth + $gap);
+          ?>
+          <svg width="<?php echo $svgWidth; ?>" height="<?php echo $chartHeight + 24; ?>" viewBox="0 0 <?php echo $svgWidth; ?> <?php echo $chartHeight + 24; ?>">
+            <?php $x = 0; foreach ($salesChartDays as $date => $amt): ?>
+              <?php
+                $barH = $amt > 0 ? max(2, round(($amt / $salesChartMax) * $chartHeight)) : 1;
+                $y = $chartHeight - $barH;
+                $label = date('n/j', strtotime($date));
+              ?>
+              <rect class="chart-bar" x="<?php echo $x; ?>" y="<?php echo $y; ?>"
+                    width="<?php echo $barWidth; ?>" height="<?php echo $barH; ?>" rx="2">
+                <title><?php echo $label; ?> · 매출 <?php echo number_format($amt); ?>원</title>
+              </rect>
+              <?php if ($x === 0 || (($x / ($barWidth + $gap)) % 5 == 0)): ?>
+                <text class="chart-axis-label" x="<?php echo $x; ?>" y="<?php echo $chartHeight + 16; ?>"><?php echo $label; ?></text>
+              <?php endif; ?>
+              <?php $x += $barWidth + $gap; ?>
+            <?php endforeach; ?>
+          </svg>
         </div>
       </div>
 
@@ -223,6 +288,16 @@ require_once __DIR__ . '/includes/layout_head.php';
       </div>
 
       <div class="quick-actions">
+        <a href="sales.php?id=<?php echo urlencode($storeId); ?>" class="quick-action-card" style="text-decoration:none;">
+          <div class="quick-action-left">
+            <div class="quick-action-icon">💰</div>
+            <div>
+              <div class="quick-action-title">매출 관리</div>
+              <div class="quick-action-desc">매출 등록 · 조회 · 통계</div>
+            </div>
+          </div>
+          <span class="quick-action-arrow">›</span>
+        </a>
         <a href="store.php?id=<?php echo urlencode($storeId); ?>" class="quick-action-card" style="text-decoration:none;">
           <div class="quick-action-left">
             <div class="quick-action-icon">👥</div>

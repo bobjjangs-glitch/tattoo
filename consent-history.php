@@ -19,6 +19,7 @@ if ($storeId === '' || $customerId === '') {
 }
 
 $actor = requireStoreAccess($pdo, $storeId);
+$canDelete = in_array($actor['role'], ['owner', 'admin'], true); // 서명 기록 삭제는 대표/관리자만 허용
 
 $stmt = $pdo->prepare('SELECT id, name FROM ss_stores WHERE id = ? LIMIT 1');
 $stmt->execute([$storeId]);
@@ -70,6 +71,13 @@ require_once __DIR__ . '/includes/flow_head.php';
             <?= htmlspecialchars($customer['phone_masked'] ?? '') ?> · 총 <?= count($documents) ?>건 서명
         </p>
 
+        <?php if (isset($_GET['doc_deleted'])): ?>
+            <div class="alert-success">동의서가 삭제되었습니다.</div>
+        <?php endif; ?>
+        <?php if (isset($_GET['doc_delete_error'])): ?>
+            <div class="alert-error">동의서를 찾을 수 없거나 삭제 중 오류가 발생했습니다.</div>
+        <?php endif; ?>
+
         <div class="page-header" style="margin:20px 0;">
             <a href="consent-select.php?id=<?= urlencode($storeId) ?>&customer_id=<?= urlencode($customerId) ?>" class="btn-primary" style="width:auto;padding:11px 22px;">+ 새 동의서 작성</a>
         </div>
@@ -81,7 +89,7 @@ require_once __DIR__ . '/includes/flow_head.php';
         <?php else: ?>
             <table class="data-table">
                 <thead>
-                    <tr><th>동의서 제목</th><th>서명일시</th><th>서명 처리자</th><th>보기</th></tr>
+                    <tr><th>동의서 제목</th><th>서명일시</th><th>서명 처리자</th><th>관리</th></tr>
                 </thead>
                 <tbody>
                     <?php foreach ($documents as $doc): ?>
@@ -97,6 +105,10 @@ require_once __DIR__ . '/includes/flow_head.php';
                             <td><?= $processedBy ?></td>
                             <td>
                                 <a href="consent-document-view.php?id=<?= urlencode($storeId) ?>&document_id=<?= urlencode($doc['id']) ?>" class="btn-mini">보기</a>
+                                <?php if ($canDelete): ?>
+                                    <button type="button" class="btn-mini" style="color:var(--danger,#dc3545);margin-left:4px;"
+                                        onclick="openDocDeleteModal('<?= htmlspecialchars($doc['id'], ENT_QUOTES) ?>', '<?= htmlspecialchars($title, ENT_QUOTES) ?>')">삭제</button>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -105,4 +117,30 @@ require_once __DIR__ . '/includes/flow_head.php';
         <?php endif; ?>
     </div>
 </div>
+
+<?php if ($canDelete): ?>
+<div class="modal-overlay" id="deleteDocModal" style="display:none;">
+  <div class="modal-box">
+    <h2 class="modal-title" style="color:var(--danger,#dc3545);">이 동의서를 삭제하시겠습니까?</h2>
+    <p id="deleteDocDesc" style="font-size:13px;color:var(--text-sub);margin-bottom:16px;"></p>
+    <form method="post" action="consent-document-delete.php">
+      <input type="hidden" name="id" value="<?= htmlspecialchars($storeId) ?>">
+      <input type="hidden" name="customer_id" value="<?= htmlspecialchars($customerId) ?>">
+      <input type="hidden" name="document_id" id="deleteDocId" value="">
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="document.getElementById('deleteDocModal').style.display='none'">취소</button>
+        <button type="submit" class="btn-danger-outline" style="flex:1;">삭제 확정</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+function openDocDeleteModal(docId, title) {
+    document.getElementById('deleteDocId').value = docId;
+    document.getElementById('deleteDocDesc').textContent = '"' + title + '" 서명 기록이 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.';
+    document.getElementById('deleteDocModal').style.display = 'flex';
+}
+</script>
+<?php endif; ?>
+
 <?php require_once __DIR__ . '/includes/flow_foot.php'; ?>
