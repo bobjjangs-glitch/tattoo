@@ -5,6 +5,7 @@ require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
 require_once __DIR__ . '/api/utils/Uuid.php';
 require_once __DIR__ . '/includes/diagram_helper.php';
+require_once __DIR__ . '/includes/plan_guard.php';
 
 $pdo = getDbConnection();
 
@@ -23,13 +24,15 @@ if ($storeId === '') {
 $actor = requireStoreAccess($pdo, $storeId);
 requireAdminRole($actor); // 동의서 양식 관리는 대표 또는 관리자 권한 직원만 허용
 
-$stmt = $pdo->prepare('SELECT id, name, industry FROM ss_stores WHERE id = ?');
+$stmt = $pdo->prepare('SELECT id, name, industry, plan_status, trial_ends_at FROM ss_stores WHERE id = ?');
 $stmt->execute([$storeId]);
 $store = $stmt->fetch();
 if (!$store) {
     http_response_code(404);
     die('매장을 찾을 수 없거나 접근 권한이 없습니다.');
 }
+
+enforcePlanAccess($store);
 
 logAccess($pdo, $storeId, $actor, 'view_consent_templates');
 

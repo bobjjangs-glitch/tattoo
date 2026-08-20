@@ -3,6 +3,7 @@ require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
 require_once __DIR__ . '/api/utils/Uuid.php';
 require_once __DIR__ . '/api/utils/Validator.php';
+require_once __DIR__ . '/includes/platform_settings.php';
 
 $user = requireLogin();
 $pdo = getDbConnection();
@@ -29,16 +30,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             $id = Uuid::v4();
+            $trialDays = (int)getPlatformSetting($pdo, 'trial_days', 14);
             $stmt = $pdo->prepare(
                 'INSERT INTO ss_stores
                  (id, owner_id, name, industry, business_number, phone, owner_name, manager_name,
                   admin_password_hash, plan, plan_status, trial_ends_at, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "free", "trial", DATE_ADD(NOW(), INTERVAL 14 DAY), NOW())'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "free", "trial", DATE_ADD(NOW(), INTERVAL ? DAY), NOW())'
             );
             $stmt->execute([
                 $id, $user['id'], $name, $industry, $businessNumber,
                 $phone, $ownerName, $managerName,
                 password_hash($adminPassword, PASSWORD_BCRYPT, ['cost' => 12]),
+                $trialDays,
             ]);
             header('Location: store-dashboard.php?id=' . urlencode($id));
             exit;

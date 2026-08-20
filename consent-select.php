@@ -7,6 +7,7 @@
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
+require_once __DIR__ . '/includes/plan_guard.php';
 
 $pdo  = getDbConnection();
 
@@ -29,6 +30,8 @@ if (!$store) {
     http_response_code(404);
     die('매장 정보를 찾을 수 없습니다.');
 }
+
+enforcePlanAccess($store);
 
 // 고객 확인
 $stmt = $pdo->prepare("SELECT * FROM ss_customers WHERE id = ? AND store_id = ? LIMIT 1");

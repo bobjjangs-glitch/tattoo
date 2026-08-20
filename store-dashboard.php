@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
+require_once __DIR__ . '/includes/plan_guard.php';
 
 $user = requireLogin();
 $pdo = getDbConnection();
@@ -10,6 +11,8 @@ $stmt = $pdo->prepare('SELECT * FROM ss_stores WHERE id = ? AND owner_id = ?');
 $stmt->execute([$storeId, $user['id']]);
 $store = $stmt->fetch();
 if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접근 권한이 없습니다.'); }
+
+enforcePlanAccess($store);
 
 function safeCount(PDO $pdo, string $sql, array $params): int {
     try {

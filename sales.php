@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/staff_auth.php';
 require_once __DIR__ . '/api/config/database.php';
 require_once __DIR__ . '/api/utils/Uuid.php';
+require_once __DIR__ . '/includes/plan_guard.php';
 
 $pdo = getDbConnection();
 $storeId = $_GET['id'] ?? '';
@@ -16,10 +17,12 @@ $actor = requireStoreAccess($pdo, $storeId);
 $actorRole = $actor['role'];
 $canDelete = in_array($actorRole, ['owner', 'admin'], true);
 
-$stmt = $pdo->prepare('SELECT id, name FROM ss_stores WHERE id = ?');
+$stmt = $pdo->prepare('SELECT id, name, plan_status, trial_ends_at FROM ss_stores WHERE id = ?');
 $stmt->execute([$storeId]);
 $store = $stmt->fetch();
 if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접근 권한이 없습니다.'); }
+
+enforcePlanAccess($store);
 
 $errorMsg = '';
 $fieldErrors = [];
