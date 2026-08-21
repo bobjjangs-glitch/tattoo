@@ -8,7 +8,11 @@
  *
  * ⚠ 이 파일을 사용하는 모든 페이지는 반드시 아래 형태로 호출해야 한다.
  *     enforcePlanAccess($pdo, $store);
- *   $store 하나만 넘기면 PHP가 TypeError로 즉시 죽고 500 오류가 난다.
+ *
+ * ⚠ 중요: 여기서는 절대 http_response_code()로 4xx/5xx를 보내지 않는다.
+ *   일부 호스팅(카페24 등)은 200이 아닌 응답이 오면 서버가 우리 HTML을
+ *   무시하고 자기네 기본 안내 페이지로 덮어써버리기 때문에,
+ *   반드시 200(정상 응답)으로 유지한 채 결제 안내 화면만 보여준다.
  */
 
 function syncStorePlanStatus(PDO $pdo, array &$store): void {
@@ -46,7 +50,9 @@ function enforcePlanAccess(PDO $pdo, array &$store): void {
     $current = basename($_SERVER['SCRIPT_NAME'] ?? '');
     if (in_array($current, $allowList, true)) return;
 
-    http_response_code(402);
+    // 402를 보내면 일부 호스팅이 응답 본문을 자기네 기본 에러 페이지로
+    // 덮어써버리므로, 반드시 200으로 유지한다.
+    http_response_code(200);
     renderPlanExpiredModal($store);
     exit;
 }
@@ -67,7 +73,7 @@ function renderPlanExpiredModal(array $store): void {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>이용 제한 - CareForm</title>
+<title>결제가 필요합니다 - CareForm</title>
 <link rel="stylesheet" href="/tattoo/assets/css/common.css">
 <link rel="stylesheet" href="/tattoo/assets/css/theme-brand.css">
 <style>
