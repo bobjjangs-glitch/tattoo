@@ -2,11 +2,10 @@
 /**
  * 결제 전용 화면.
  * 대시보드 사이드바/메뉴 없이 오직 결제 처리만을 위한 독립 페이지.
- * plan_guard.php의 결제 유도 모달 버튼이 여기로 연결된다.
  *
  * ⚠ PG(결제대행사) 연동 전 임시 처리다. 실제 카드 승인 절차 없이
- * 형식 검증만 통과하면 결제 완료로 간주한다. 반드시 실 서비스 전환 시
- * 이 블록을 PG API 승인/웹훅 처리로 교체해야 한다.
+ * 형식 검증만 통과하면 결제 완료로 간주한다. 실 서비스 전환 시
+ * 이 블록을 PG API 승인/웹훅 처리로 반드시 교체해야 한다.
  */
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/api/config/database.php';
@@ -49,14 +48,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $expiresAt = date('Y-m-d H:i:s', strtotime('+1 month'));
 
-            // ⚠ plan_status만 바꾸면 "plan=free인데 active" 라는 모순된 데이터가 남는다.
-            // 결제 완료 시 plan도 함께 유료 등급(basic)으로 갱신한다.
-            $pdo->prepare("UPDATE ss_stores SET plan = 'basic', plan_status = 'active', plan_expires_at = ? WHERE id = ?")
-                ->execute([$expiresAt, $store['id']]);
+            // plan_status/plan 갱신과 동시에 renewal_notice_sent를 반드시 0으로 초기화한다.
+            // 초기화하지 않으면 다음 재결제 임박 시점에 알림이 다시 나가지 않는다.
+            $pdo->prepare(
+                "UPDATE ss_stores
+                 SET plan = 'basic', plan_status = 'active',
+                     plan_expires_at = ?, renewal_notice_sent = 0
+                 WHERE id = ?"
+            )->execute([$expiresAt, $store['id']]);
 
             $store['plan'] = 'basic';
             $store['plan_status'] = 'active';
             $store['plan_expires_at'] = $expiresAt;
+            $store['renewal_notice_sent'] = 0;
 
             recordBillingHistory($pdo, $store['id'], $planName, $monthlyFee, 'paid', 'PG 연동 전 테스트 결제');
 

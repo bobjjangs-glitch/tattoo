@@ -15,10 +15,16 @@ $totalStores = safeCountA($pdo, 'SELECT COUNT(*) FROM ss_stores');
 $trialStores = safeCountA($pdo, "SELECT COUNT(*) FROM ss_stores WHERE plan_status = 'trial'");
 $activeStores = safeCountA($pdo, "SELECT COUNT(*) FROM ss_stores WHERE plan_status = 'active'");
 $suspendedStores = safeCountA($pdo, "SELECT COUNT(*) FROM ss_stores WHERE plan_status = 'suspended'");
+$canceledStores = safeCountA($pdo, "SELECT COUNT(*) FROM ss_stores WHERE plan_status = 'canceled'");
 $newStoresThisMonth = safeCountA($pdo, "SELECT COUNT(*) FROM ss_stores WHERE created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')");
 
 $monthlyFee = (int) getPlatformSetting($pdo, 'monthly_fee', '5900');
 $estimatedMrr = $activeStores * $monthlyFee;
+
+// ss_billing_history가 있으면 이번달 실제 결제 완료 금액을 우선 사용한다.
+$actualMonthRevenue = safeCountA($pdo,
+    "SELECT COALESCE(SUM(amount),0) FROM ss_billing_history
+     WHERE status = 'paid' AND paid_at >= DATE_FORMAT(NOW(), '%Y-%m-01')");
 
 $recentStores = [];
 try {
@@ -26,6 +32,13 @@ try {
     $stmt->execute();
     $recentStores = $stmt->fetchAll();
 } catch (Throwable $e) {}
+
+$statusLabelMap = [
+    'trial' => '체험중',
+    'active' => '운영 중',
+    'suspended' => '중지됨',
+    'canceled' => '해지됨',
+];
 
 $activePage = 'dashboard';
 $pageTitle = '관리자 대시보드';
@@ -60,9 +73,27 @@ require_once __DIR__ . '/includes/admin_layout_head.php';
           <div class="stat-sub">결제 실패 또는 강제 중지</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">💰 예상 월 매출(MRR)</div>
+          <div class="stat-label">📪 해지됨</div>
+          <div class="stat-value"><?php echo number_format($canceledStores); ?></div>
+          <div class="stat-sub">구독 해지 매장</div>
+        </div>
+      </div>
+
+      <div class="stat-cards" style="margin-top:14px;">
+        <div class="stat-card">
+          <div class="stat-label">💰 이번달 실제 매출</div>
+          <div class="stat-value"><?php echo number_format($actualMonthRevenue); ?>원</div>
+          <div class="stat-sub">ss_billing_history 결제완료 금액 합계 (실측치)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">📐 유료매장 기준 추정 MRR</div>
           <div class="stat-value"><?php echo number_format($estimatedMrr); ?>원</div>
-          <div class="stat-sub">유료 매장 × <?php echo number_format($monthlyFee); ?>원</div>
+          <div class="stat-sub">유료 매장 <?php echo $activeStores; ?>곳 × <?php echo number_format($monthlyFee); ?>원 (참고용 추정치)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">🔎 자세히 보기</div>
+          <div class="stat-value" style="font-size:15px;"><a href="billing.php">전체 결제 내역 →</a></div>
+          <div class="stat-sub">매장별 결제 이력, 지난달 매출 확인</div>
         </div>
       </div>
 
@@ -82,7 +113,7 @@ require_once __DIR__ . '/includes/admin_layout_head.php';
                 <td><?php echo htmlspecialchars($s['name']); ?></td>
                 <td><?php echo htmlspecialchars($s['owner_name'] ?: '-'); ?></td>
                 <td><span class="status-badge <?php echo htmlspecialchars($s['plan_status']); ?>">
-                  <?php echo $s['plan_status'] === 'trial' ? '체험중' : ($s['plan_status'] === 'active' ? '운영 중' : '중지됨'); ?>
+                  <?php echo $statusLabelMap[$s['plan_status']] ?? htmlspecialchars($s['plan_status']); ?>
                 </span></td>
                 <td><?php echo htmlspecialchars(substr($s['created_at'], 0, 10)); ?></td>
               </tr>

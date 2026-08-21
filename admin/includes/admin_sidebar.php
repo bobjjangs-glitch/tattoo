@@ -3,8 +3,8 @@
   <div class="sidebar-logo"><span class="logo-text">CareForm</span><span class="admin-tag">Admin</span></div>
   <nav class="sidebar-nav">
     <a href="dashboard.php" class="nav-item <?php echo $activePage === 'dashboard' ? 'active' : ''; ?>">📊 대시보드</a>
-    <a href="members.php" class="nav-item <?php echo $activePage === 'members' ? 'active' : ''; ?>">👤 회원 관리</a>
     <a href="stores.php" class="nav-item <?php echo $activePage === 'stores' ? 'active' : ''; ?>">🏬 매장 관리</a>
+    <a href="billing.php" class="nav-item <?php echo $activePage === 'billing' ? 'active' : ''; ?>">💳 결제 내역</a>
     <a href="settings.php" class="nav-item <?php echo $activePage === 'settings' ? 'active' : ''; ?>">⚙️ 요금 설정</a>
     <a href="admins.php" class="nav-item <?php echo $activePage === 'admins' ? 'active' : ''; ?>">🔑 관리자 계정</a>
   </nav>

@@ -25,3 +25,24 @@ function sendTrialEndingMail(string $toEmail, string $storeName, int $daysLeft, 
 
     return @mail($toEmail, $subject, $body, $headers);
 }
+
+/**
+ * 유료 매장의 재결제일(plan_expires_at) 임박 안내 메일.
+ */
+function sendRenewalEndingMail(string $toEmail, string $storeName, int $daysLeft, string $storeId, int $monthlyFee): bool {
+    $subject = "[CareForm] {$storeName} 매장 재결제일이 {$daysLeft}일 후입니다";
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $checkoutUrl = 'https://' . $host . '/tattoo/checkout.php?id=' . urlencode($storeId);
+
+    $body = "안녕하세요, {$storeName} 매장 담당자님.\n\n"
+        . "이용 중인 플랜의 결제 유효기간이 {$daysLeft}일 후 만료됩니다.\n"
+        . "재결제일까지 결제를 완료하지 않으면 서비스 이용이 중지되니 주의해주세요.\n\n"
+        . "결제 금액: " . number_format($monthlyFee) . "원\n"
+        . "지금 재결제하기: {$checkoutUrl}\n\n"
+        . "감사합니다.\nCareForm";
+
+    $headers = "From: CareForm <no-reply@{$host}>\r\n"
+        . "Content-Type: text/plain; charset=UTF-8\r\n";
+
+    return @mail($toEmail, $subject, $body, $headers);
+}

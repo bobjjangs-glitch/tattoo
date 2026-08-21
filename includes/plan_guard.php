@@ -4,22 +4,11 @@
  * 만료된 경우 접근을 막는 공용 가드.
  *
  * ⚠ ss_stores.plan_status는 ENUM('trial','active','suspended','canceled')이다.
- *   canceled는 사용자가 직접 구독을 해지한 경우를 위해 이미 스키마에 준비된 값이며,
- *   이 값도 반드시 만료(접근 차단) 상태로 취급해야 한다.
- *
  * ⚠ ss_stores.plan은 ENUM('free','basic','premium','enterprise')이다.
- *   결제가 완료되면 plan_status뿐 아니라 plan 값도 함께 갱신해야
- *   "무료 플랜인데 사용중" 같은 모순된 데이터가 생기지 않는다.
- *
- * ⚠ 이 파일을 사용하는 모든 페이지는 반드시 아래 형태로 호출해야 한다.
- *     enforcePlanAccess($pdo, $store);
- *
- * ⚠ http_response_code()로 4xx/5xx를 보내지 않는다. 200으로 유지해야
- *   일부 호스팅이 응답 본문을 자기네 기본 에러 페이지로 덮어쓰지 않는다.
- *
- * ⚠ 크론 미등록 상태에서는 이 파일의 검사가 "누군가 실제로 페이지에
- *   접속했을 때만" 실행된다. 아무도 접속하지 않으면 만료 처리와
- *   알림 메일 발송 모두 지연될 수 있다. 추후 크론 등록 시 이 한계가 해소된다.
+ * ⚠ 이 파일을 사용하는 모든 페이지는 반드시 enforcePlanAccess($pdo, $store); 형태로 호출한다.
+ * ⚠ http_response_code()는 항상 200으로 유지한다(일부 호스팅의 에러페이지 덮어쓰기 회피).
+ * ⚠ 크론 미등록 상태에서는 이 파일의 검사와 알림 발송 모두
+ *   "누군가 실제로 페이지에 접속했을 때만" 실행된다.
  */
 
 function syncStorePlanStatus(PDO $pdo, array &$store): void {
@@ -40,8 +29,6 @@ function syncStorePlanStatus(PDO $pdo, array &$store): void {
     }
 
     if ($status === 'active') {
-        // PG 자동 정기결제 연동 전까지는, 결제 유효기간(plan_expires_at)이
-        // 지나면 재결제가 필요한 상태로 되돌린다.
         if (empty($store['plan_expires_at'])) return;
         if (strtotime($store['plan_expires_at']) >= time()) return;
         try {
@@ -57,7 +44,6 @@ function syncStorePlanStatus(PDO $pdo, array &$store): void {
 
 /**
  * 무료체험 종료 3일 전 이내이고 아직 안내 메일을 보낸 적 없다면 1회 발송한다.
- * 발송 성공 여부와 무관하게 플래그를 세워 재시도 폭탄을 막는다.
  */
 function maybeSendTrialEndingNotice(PDO $pdo, array &$store): void {
     if (($store['plan_status'] ?? '') !== 'trial') return;
@@ -80,10 +66,47 @@ function maybeSendTrialEndingNotice(PDO $pdo, array &$store): void {
         $store['trial_notice_sent'] = 1;
 
         if (!$sent) {
-            error_log('[plan_guard] 체험 만료 안내 메일 발송 실패(호스팅 메일 제한 가능성): store_id=' . $store['id']);
+            error_log('[plan_guard] 체험 만료 안내 메일 발송 실패: store_id=' . $store['id']);
         }
     } catch (Throwable $e) {
         error_log('[plan_guard] 체험 만료 안내 처리 중 오류: ' . $e->getMessage());
+    }
+}
+
+/**
+ * 유료(active) 매장의 재결제일(plan_expires_at)이 3일 이내로 임박했고
+ * 아직 안내 메일을 보낸 적 없다면 1회 발송한다.
+ * trial_notice_sent와는 별개의 renewal_notice_sent 플래그를 쓴다.
+ * (체험 때 이미 1이 된 플래그를 재사용하면 결제 후 알림이 영원히 안 나가는 버그가 생긴다.)
+ */
+function maybeSendRenewalNotice(PDO $pdo, array &$store): void {
+    if (($store['plan_status'] ?? '') !== 'active') return;
+    if (empty($store['plan_expires_at'])) return;
+    if (!empty($store['renewal_notice_sent'])) return;
+
+    $daysLeft = (int)ceil((strtotime($store['plan_expires_at']) - time()) / 86400);
+    if ($daysLeft < 0 || $daysLeft > 3) return;
+
+    try {
+        require_once __DIR__ . '/platform_settings.php';
+        $monthlyFee = (int)getPlatformSetting($pdo, 'monthly_fee', 5900);
+
+        $stmt = $pdo->prepare('SELECT email FROM ss_users WHERE id = ?');
+        $stmt->execute([$store['owner_id']]);
+        $owner = $stmt->fetch();
+        if (!$owner || empty($owner['email'])) return;
+
+        require_once __DIR__ . '/mailer.php';
+        $sent = sendRenewalEndingMail($owner['email'], $store['name'], $daysLeft, $store['id'], $monthlyFee);
+
+        $pdo->prepare('UPDATE ss_stores SET renewal_notice_sent = 1 WHERE id = ?')->execute([$store['id']]);
+        $store['renewal_notice_sent'] = 1;
+
+        if (!$sent) {
+            error_log('[plan_guard] 재결제 임박 안내 메일 발송 실패: store_id=' . $store['id']);
+        }
+    } catch (Throwable $e) {
+        error_log('[plan_guard] 재결제 임박 안내 처리 중 오류: ' . $e->getMessage());
     }
 }
 
@@ -102,6 +125,7 @@ function isStorePlanExpired(array $store): bool {
 function enforcePlanAccess(PDO $pdo, array &$store): void {
     syncStorePlanStatus($pdo, $store);
     maybeSendTrialEndingNotice($pdo, $store);
+    maybeSendRenewalNotice($pdo, $store);
 
     if (!isStorePlanExpired($store)) return;
 
