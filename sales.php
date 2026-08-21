@@ -22,7 +22,10 @@ $stmt->execute([$storeId]);
 $store = $stmt->fetch();
 if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접근 권한이 없습니다.'); }
 
-enforcePlanAccess($store);
+enforcePlanAccess($pdo, $store);
+
+/* ── 이하 매출 등록·조회·차트·목록·모달 로직은 기존과 완전히 동일하게 유지 ── */
+
 
 $errorMsg = '';
 $fieldErrors = [];

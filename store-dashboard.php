@@ -12,7 +12,7 @@ $stmt->execute([$storeId, $user['id']]);
 $store = $stmt->fetch();
 if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접근 권한이 없습니다.'); }
 
-enforcePlanAccess($store);
+enforcePlanAccess($pdo, $store);
 
 function safeCount(PDO $pdo, string $sql, array $params): int {
     try {
@@ -170,7 +170,7 @@ require_once __DIR__ . '/includes/layout_head.php';
       <?php if ($trialDaysLeft !== null): ?>
         <div class="trial-banner">
           <span>⏰ 무료체험 <?php echo $trialDaysLeft; ?>일 남았습니다.</span>
-          <button class="btn-upgrade">카드 등록하기</button>
+          <a href="billing.php?id=<?php echo urlencode($storeId); ?>" class="btn-upgrade" style="text-decoration:none;">결제 관리로 이동</a>
         </div>
       <?php endif; ?>
 

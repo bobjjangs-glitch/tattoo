@@ -24,7 +24,8 @@ if (!$store) {
     die('매장을 찾을 수 없습니다.');
 }
 
-enforcePlanAccess($store);
+enforcePlanAccess($pdo, $store);
+
 
 logAccess($pdo, $storeId, $actor, 'view_customer_list');
 

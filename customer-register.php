@@ -22,7 +22,7 @@ $stmt->execute([$storeId]);
 $store = $stmt->fetch();
 if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접근 권한이 없습니다.'); }
 
-enforcePlanAccess($store);
+enforcePlanAccess($pdo, $store);
 
 $errorMsg = '';
 $fieldErrors = [];

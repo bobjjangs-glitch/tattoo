@@ -31,7 +31,7 @@ if (!$store) {
     die('매장 정보를 찾을 수 없습니다.');
 }
 
-enforcePlanAccess($store);
+enforcePlanAccess($pdo, $store);
 
 // 고객 확인
 $stmt = $pdo->prepare("SELECT * FROM ss_customers WHERE id = ? AND store_id = ? LIMIT 1");

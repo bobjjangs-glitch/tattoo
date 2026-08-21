@@ -32,7 +32,7 @@ if (!$store) {
     die('매장을 찾을 수 없거나 접근 권한이 없습니다.');
 }
 
-enforcePlanAccess($store);
+enforcePlanAccess($pdo, $store);
 
 logAccess($pdo, $storeId, $actor, 'view_consent_templates');
 
