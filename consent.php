@@ -22,7 +22,7 @@ if ($storeId === '') {
 }
 
 $actor = requireStoreAccess($pdo, $storeId);
-requireAdminRole($actor); // 동의서 양식 관리는 대표 또는 관리자 권한 직원만 허용
+requireAdminRole($actor);
 
 $stmt = $pdo->prepare('SELECT id, name, industry, plan_status, trial_ends_at FROM ss_stores WHERE id = ?');
 $stmt->execute([$storeId]);
@@ -38,7 +38,6 @@ logAccess($pdo, $storeId, $actor, 'view_consent_templates');
 
 $errorMessage = '';
 
-// ── 체크리스트 JSON 정규화 (그룹 배열 형태로 항상 통일) ──
 function normalizeChecklistGroupsForSave(string $rawJson): string {
     $decoded = json_decode($rawJson, true);
     if (!is_array($decoded) || !isset($decoded['groups']) || !is_array($decoded['groups'])) {
@@ -162,7 +161,6 @@ $listStmt = $pdo->prepare('SELECT id, title, industry, content, checklist_items,
 $listStmt->execute([$storeId]);
 $templatesRaw = $listStmt->fetchAll();
 
-// diagram_type을 화면/JS로 넘기기 전에 반드시 정규화 — 구형 값이 남아있어도 항상 유효한 키로 보정
 $templates = array_map(function ($t) use ($diagramConfig) {
     $t['diagram_type'] = normalizeDiagramTypeKey($t['diagram_type'] ?? 'none', $diagramConfig);
     return $t;
@@ -246,7 +244,6 @@ require_once __DIR__ . '/includes/layout_head.php';
     </main>
 </div>
 
-<!-- ===== 생성/수정 모달 ===== -->
 <div class="modal-overlay" id="consentModal" style="display:none;">
     <div class="modal-box modal-lg" style="position:relative;">
         <button type="button" class="modal-close-btn" onclick="closeModal()">✕</button>
@@ -319,7 +316,6 @@ require_once __DIR__ . '/includes/layout_head.php';
     </div>
 </div>
 
-<!-- ===== 읽기 전용 보기 모달 ===== -->
 <div class="modal-overlay" id="viewModal" style="display:none;">
     <div class="modal-box modal-lg" style="position:relative;">
         <button type="button" class="modal-close-btn" onclick="document.getElementById('viewModal').style.display='none'">✕</button>

@@ -6,20 +6,15 @@
  * ⚠ 상태값은 ss_stores.plan_status 컬럼에 실제로 저장되는 값과 반드시 일치해야 한다.
  *   이 프로젝트에서 저장되는 값은 'trial' / 'active' / 'suspended' 세 가지뿐이다.
  *
- * ⚠ 이 파일의 함수를 호출하는 곳(store-dashboard.php, store.php, sales.php,
- *   consent.php, customer-register.php, consent-select.php)은 전부
- *   enforcePlanAccess($pdo, $store); 형태로 호출해야 한다.
- *   $store 하나만 넘기면 PHP가 TypeError로 즉시 죽고 500 오류가 뜬다 (배포 시 반드시 확인).
+ * ⚠ 이 파일을 사용하는 모든 페이지는 반드시 아래 형태로 호출해야 한다.
+ *     enforcePlanAccess($pdo, $store);
+ *   $store 하나만 넘기면 PHP가 TypeError로 즉시 죽고 500 오류가 난다.
  */
 
-/**
- * 체험 기간이 끝났는데 아직 plan_status가 'trial'로 남아있는 매장을
- * 이 요청 시점에서 즉시 'suspended'로 DB에 반영한다.
- */
 function syncStorePlanStatus(PDO $pdo, array &$store): void {
     if (($store['plan_status'] ?? '') !== 'trial') return;
     if (empty($store['trial_ends_at'])) return;
-    if (strtotime($store['trial_ends_at']) >= time()) return; // 아직 안 끝남
+    if (strtotime($store['trial_ends_at']) >= time()) return;
 
     try {
         $pdo->prepare("UPDATE ss_stores SET plan_status = 'suspended' WHERE id = ? AND plan_status = 'trial'")
@@ -33,12 +28,8 @@ function syncStorePlanStatus(PDO $pdo, array &$store): void {
 function isStorePlanExpired(array $store): bool {
     $status = $store['plan_status'] ?? 'trial';
 
-    if ($status === 'active') {
-        return false;
-    }
-    if ($status === 'suspended') {
-        return true;
-    }
+    if ($status === 'active') return false;
+    if ($status === 'suspended') return true;
     if ($status === 'trial') {
         if (empty($store['trial_ends_at'])) return false;
         return strtotime($store['trial_ends_at']) < time();
@@ -46,10 +37,6 @@ function isStorePlanExpired(array $store): bool {
     return false;
 }
 
-/**
- * 만료된 매장이면 결제/설정 페이지를 제외한 모든 곳에서 접근을 막고
- * 결제 유도 모달 화면을 출력한다.
- */
 function enforcePlanAccess(PDO $pdo, array &$store): void {
     syncStorePlanStatus($pdo, $store);
 
@@ -59,20 +46,14 @@ function enforcePlanAccess(PDO $pdo, array &$store): void {
     $current = basename($_SERVER['SCRIPT_NAME'] ?? '');
     if (in_array($current, $allowList, true)) return;
 
-    http_response_code(402); // Payment Required
+    http_response_code(402);
     renderPlanExpiredModal($store);
     exit;
 }
 
-/**
- * 어두운 반투명 배경 위에 결제 유도 모달 카드를 띄운다.
- */
 function renderPlanExpiredModal(array $store): void {
     $storeId = $store['id'] ?? '';
     $billingUrl = 'billing.php?id=' . urlencode($storeId);
-
-    // trial_ends_at이 있는 상태에서 만료된 것이면 "체험 종료로 인한 자동 중지",
-    // trial_ends_at이 없는데 suspended면 "관리자가 직접 중지시킨 매장".
     $isAutoExpiredTrial = !empty($store['trial_ends_at']) && strtotime($store['trial_ends_at']) < time();
 
     $icon = $isAutoExpiredTrial ? '⏰' : '🚫';
@@ -101,11 +82,6 @@ function renderPlanExpiredModal(array $store): void {
     background:#fff; border-radius:18px; padding:40px 32px;
     max-width:380px; width:100%; text-align:center;
     box-shadow:0 24px 60px rgba(0,0,0,.28);
-    animation: planModalPop .18s ease-out;
-  }
-  @keyframes planModalPop {
-    from { transform:scale(.94); opacity:0; }
-    to   { transform:scale(1);   opacity:1; }
   }
   .plan-blocked-modal .icon { font-size:42px; margin-bottom:14px; }
   .plan-blocked-modal h2 { font-size:19px; margin:0 0 10px; color:#222; }

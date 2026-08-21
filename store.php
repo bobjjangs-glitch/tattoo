@@ -26,7 +26,6 @@ if (!$store) {
 
 enforcePlanAccess($pdo, $store);
 
-
 logAccess($pdo, $storeId, $actor, 'view_customer_list');
 
 $keyword = trim($_GET['keyword'] ?? '');
@@ -42,7 +41,6 @@ $listStmt = $pdo->prepare($sql);
 $listStmt->execute($params);
 $customers = $listStmt->fetchAll();
 
-// ── 각 고객의 서명 완료 동의서 "건수"를 조회 (삭제된 동의서는 제외) ──
 $docCountByCustomer = [];
 if (!empty($customers)) {
     $customerIds = array_column($customers, 'id');

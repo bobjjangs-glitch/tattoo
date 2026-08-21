@@ -24,9 +24,6 @@ if (!$store) { http_response_code(404); die('매장을 찾을 수 없거나 접�
 
 enforcePlanAccess($pdo, $store);
 
-/* ── 이하 매출 등록·조회·차트·목록·모달 로직은 기존과 완전히 동일하게 유지 ── */
-
-
 $errorMsg = '';
 $fieldErrors = [];
 
@@ -126,7 +123,6 @@ $customerOptions = safeFetchAllS($pdo,
     'SELECT id, name, phone_masked FROM ss_customers WHERE store_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 200',
     [$storeId]);
 
-// 매출 내역 목록 (최근 100건, 삭제된 매출/고객 제외)
 $sales = safeFetchAllS($pdo,
     "SELECT sl.id, sl.amount, sl.memo, sl.sale_date, sl.created_at,
             c.name AS customer_name,

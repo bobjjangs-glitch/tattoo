@@ -2,7 +2,6 @@
 /**
  * consent-select.php
  * 고객관리 > 동의서 작성 > 템플릿 선택 화면
- * (대표 + 직원 모두 접근 가능해야 하므로 staff_auth의 requireStoreAccess 사용)
  */
 require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/staff_auth.php';
@@ -19,10 +18,8 @@ if ($storeId === '' || $customerId === '') {
     die('필수 파라미터(id, customer_id)가 없습니다.');
 }
 
-// 대표든 직원(staff/admin)이든 이 매장에 대한 접근 권한만 있으면 통과
 $actor = requireStoreAccess($pdo, $storeId);
 
-// 매장 확인
 $stmt = $pdo->prepare("SELECT * FROM ss_stores WHERE id = ? LIMIT 1");
 $stmt->execute([$storeId]);
 $store = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -33,7 +30,6 @@ if (!$store) {
 
 enforcePlanAccess($pdo, $store);
 
-// 고객 확인
 $stmt = $pdo->prepare("SELECT * FROM ss_customers WHERE id = ? AND store_id = ? LIMIT 1");
 $stmt->execute([$customerId, $storeId]);
 $customer = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -42,7 +38,6 @@ if (!$customer) {
     die('고객 정보를 찾을 수 없습니다.');
 }
 
-// 활성화된 동의서 템플릿 목록
 $stmt = $pdo->prepare("
     SELECT id, title, industry, version
     FROM ss_consent_templates
