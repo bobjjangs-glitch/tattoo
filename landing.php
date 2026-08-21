@@ -23,9 +23,12 @@ $activeNav       = 'home';
 require_once __DIR__ . '/includes/landing_header.php';
 ?>
 
-<div class="wrap">
-  <section class="hero">
-    <h1>바쁜 뷰티·타투 매장에서도,<br><span>동의와 서명 기록</span>은 빠짐없이.</h1>
+<section class="hero">
+  <span class="hero-blob b1"></span>
+  <span class="hero-blob b2"></span>
+  <div class="wrap">
+    <span class="hero-eyebrow">뷰티·타투 매장 전용 전자동의서</span>
+    <h1>바쁜 매장에서도,<br><span>동의와 서명 기록</span>은 빠짐없이.</h1>
     <p class="lead">업종에 맞는 전자동의서를 태블릿이나 휴대폰으로 바로 작성하고, 서명 기록과 시술 자료를 고객별 이력으로 남기세요.</p>
     <a href="signup.php" class="btn-primary-lg">무료로 시작하기 →</a>
     <div class="hero-badges">
@@ -33,11 +36,12 @@ require_once __DIR__ . '/includes/landing_header.php';
       <span>업종별 동의서 템플릿</span>
       <span>고객별 서명·이력 관리</span>
     </div>
-  </section>
-</div>
+  </div>
+</section>
 
-<section id="problem" style="background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);">
+<section id="problem" class="reveal" style="background:#fff;border-top:1px solid var(--border);border-bottom:1px solid var(--border);">
   <div class="wrap">
+    <span class="section-eyebrow">Why CareForm</span>
     <h2 class="section-title">동의서는 받을 때보다<br>필요할 때 잘 찾아져야 합니다</h2>
     <p class="section-sub">종이를 디지털로 바꾸는 것만으로는 부족합니다. 시술 전 확인부터 나중의 조회까지 한 흐름으로 이어져야 합니다.</p>
     <div class="problem-grid">
@@ -48,8 +52,9 @@ require_once __DIR__ . '/includes/landing_header.php';
   </div>
 </section>
 
-<section id="features">
+<section id="features" class="reveal">
   <div class="wrap">
+    <span class="section-eyebrow">Features</span>
     <h2 class="section-title">CareForm이 실제로 하는 일</h2>
     <p class="section-sub">헤어·피부·네일·왁싱·속눈썹·타투까지, 매장 유형에 맞춰 동작합니다.</p>
     <div class="feature-grid">
@@ -63,8 +68,9 @@ require_once __DIR__ . '/includes/landing_header.php';
   </div>
 </section>
 
-<section class="trust-section">
+<section class="trust-section reveal">
   <div class="wrap">
+    <span class="section-eyebrow">Trust & Security</span>
     <h2 class="section-title">보이지 않는 곳도 신경 쓰고 있습니다</h2>
     <div class="trust-list">
       <div class="trust-item"><span class="check">✓</span><div><h4>비밀번호 암호화 저장</h4><p>모든 비밀번호는 복호화가 불가능한 방식(bcrypt)으로 저장됩니다.</p></div></div>
@@ -75,8 +81,7 @@ require_once __DIR__ . '/includes/landing_header.php';
   </div>
 </section>
 
-<!-- 도구 소개 카드: 정적 미리보기 + 전용 페이지로 링크만 (실제 인터랙션은 tool-consent-form.php) -->
-<section id="tool">
+<section id="tool" class="reveal">
   <div class="wrap">
     <div class="tool-teaser">
       <div class="tool-teaser-copy">
@@ -101,11 +106,13 @@ require_once __DIR__ . '/includes/landing_header.php';
   </div>
 </section>
 
-<section id="pricing">
+<section id="pricing" class="reveal">
   <div class="wrap">
+    <span class="section-eyebrow">Pricing</span>
     <h2 class="section-title">카드 등록 없이 시작</h2>
     <p class="section-sub">먼저 사용해보고, 필요할 때 결제를 진행하세요.</p>
     <div class="pricing-box">
+      <div class="ribbon">추천</div>
       <div class="plan-name">베이직 플랜</div>
       <div class="price">월 <?php echo number_format($monthlyFee); ?>원 <span>· VAT 포함</span></div>
       <div class="vat"><?php echo (int)$trialDays; ?>일 무료체험 · 이후 결제 전환</div>
@@ -121,8 +128,9 @@ require_once __DIR__ . '/includes/landing_header.php';
   </div>
 </section>
 
-<section id="faq" class="faq-section">
+<section id="faq" class="faq-section reveal">
   <div class="wrap">
+    <span class="section-eyebrow">FAQ</span>
     <h2 class="section-title">시작하기 전에<br>확인해 보세요.</h2>
     <div class="faq-list">
       <div class="faq-item is-open">
@@ -153,7 +161,7 @@ require_once __DIR__ . '/includes/landing_header.php';
   </div>
 </section>
 
-<section>
+<section class="reveal">
   <div class="final-cta">
     <h2>지금 바로 시작해보세요</h2>
     <p>가입에는 10초도 걸리지 않습니다.</p>
